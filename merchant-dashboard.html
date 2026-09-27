@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لوحة تحكم التاجر — dz-store-factory</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#e8eaed; --muted:#9aa2af; --accent:#3ddc97; --accent2:#0d6efd;
+    --danger:#ff5470; --warn:#ffb020;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text);}
+  #authScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:28px;width:100%;max-width:360px;}
+  .card h2{margin-top:0;text-align:center;color:var(--accent);}
+  input,select,textarea{width:100%;padding:10px 12px;margin-bottom:12px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px;}
+  button{cursor:pointer;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;}
+  .btn-primary{background:var(--accent2);color:#fff;width:100%;}
+  .btn-green{background:var(--accent);color:#062018;}
+  .btn-danger{background:var(--danger);color:#fff;}
+  .btn-ghost{width:100%;margin-top:8px;background:var(--panel2);color:var(--text);}
+  .btn-sm{padding:6px 10px;font-size:12px;margin-inline-end:6px;}
+  .switchLink{color:var(--accent2);text-align:center;display:block;margin-top:10px;font-size:13px;cursor:pointer;}
+  #errMsg{color:var(--danger);font-size:13px;text-align:center;min-height:18px;}
+  #okMsg{color:var(--accent);font-size:13px;text-align:center;min-height:18px;}
+  #app{display:none;min-height:100vh;grid-template-columns:200px 1fr;}
+  .sidebar{background:var(--panel);border-inline-end:1px solid var(--border);padding:18px 10px;position:sticky;top:0;height:100vh;}
+  .sidebar h1{font-size:15px;color:var(--accent);padding:0 10px;margin-bottom:20px;}
+  .nav-item{display:block;padding:10px 12px;border-radius:8px;color:var(--muted);cursor:pointer;margin-bottom:4px;font-size:14px;}
+  .nav-item:hover{background:var(--panel2);color:var(--text);}
+  .nav-item.active{background:var(--accent2);color:#fff;}
+  main{padding:22px;overflow-x:auto;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px;}
+  .topbar h2{margin:0;font-size:19px;}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:12px;overflow:hidden;}
+  th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);font-size:13px;}
+  th{background:var(--panel2);color:var(--muted);}
+  tr:last-child td{border-bottom:none;}
+  .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+  .badge-active{background:#14311f;color:var(--accent);}
+  .badge-trial{background:#26210a;color:var(--warn);}
+  .badge-frozen,.badge-expired,.badge-cancelled{background:#301418;color:var(--danger);}
+  .badge-pending,.badge-new,.badge-confirmed{background:#1a2333;color:#6ea8fe;}
+  .section{display:none;}
+  .section.active{display:block;}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:18px;}
+  .planGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;}
+  .planCard{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;}
+  .planCard.current{border-color:var(--accent);}
+  .planCard .price{font-size:20px;font-weight:700;color:var(--accent);margin:8px 0;}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50;padding:16px;}
+  .modal-bg.show{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;width:100%;max-width:420px;max-height:85vh;overflow-y:auto;}
+  .muted{color:var(--muted);font-size:12px;}
+  .loading{color:var(--muted);padding:20px;text-align:center;}
+  .colorRow{display:flex;gap:10px;align-items:center;margin-bottom:12px;}
+  .colorRow input[type=color]{width:44px;height:40px;padding:2px;flex-shrink:0;margin:0;}
+</style>
+</head>
+<body>
+
+<!-- AUTH SCREEN -->
+<div id="authScreen">
+  <div class="card">
+    <h2 id="authTitle">تسجيل دخول التاجر</h2>
+
+    <div id="signupFields" style="display:none;">
+      <input id="suName" placeholder="الاسم الكامل">
+      <input id="suPhone" placeholder="رقم الهاتف">
+    </div>
+    <input id="authEmail" type="email" placeholder="البريد الإلكتروني">
+    <input id="authPass" type="password" placeholder="كلمة المرور">
+
+    <button class="btn-primary" id="authBtn" onclick="doLogin()">دخول</button>
+    <span class="switchLink" id="switchLink" onclick="toggleMode()">ليس لديك حساب؟ أنشئ حساباً جديداً</span>
+    <p id="errMsg"></p>
+    <p id="okMsg"></p>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app">
+  <div class="sidebar">
+    <h1>لوحة التاجر</h1>
+    <div class="nav-item active" data-sec="overview">نظرة عامة</div>
+    <div class="nav-item" data-sec="store">متجري</div>
+    <div class="nav-item" data-sec="products">المنتجات</div>
+    <div class="nav-item" data-sec="orders">الطلبات</div>
+    <div class="nav-item" data-sec="subscription">الاشتراك</div>
+    <div class="nav-item" style="margin-top:30px;color:var(--danger);" onclick="doLogout()">تسجيل الخروج</div>
+  </div>
+
+  <main>
+    <!-- Overview -->
+    <section class="section active" id="sec-overview">
+      <div class="topbar"><h2>نظرة عامة</h2></div>
+      <div id="overviewBox" class="loading">جاري التحميل...</div>
+    </section>
+
+    <!-- Store -->
+    <section class="section" id="sec-store">
+      <div class="topbar"><h2>متجري</h2></div>
+      <div class="panel">
+        <input type="hidden" id="storeId">
+        <label class="muted">اسم المتجر</label>
+        <input id="storeName" placeholder="مثال: بوتيك ريم">
+        <label class="muted">رابط المتجر (بالحروف اللاتينية بدون مسافات)</label>
+        <input id="storeSlug" placeholder="reem-boutique">
+        <label class="muted">رقم واتساب المتجر</label>
+        <input id="storeWhatsapp" placeholder="0555xxxxxx">
+        <label class="muted">الولاية</label>
+        <input id="storeWilaya" placeholder="مثال: الجزائر العاصمة">
+        <label class="muted">رابط شعار المتجر (اختياري)</label>
+        <input id="storeLogo" placeholder="https://...">
+        <label class="muted">لون المتجر</label>
+        <div class="colorRow">
+          <input type="color" id="storeColor" value="#0d6efd">
+          <span class="muted">يظهر هذا اللون في واجهة متجركم العامة</span>
+        </div>
+        <button class="btn-primary" onclick="saveStore()">حفظ بيانات المتجر</button>
+        <p id="storeMsg" class="muted"></p>
+      </div>
+    </section>
+
+    <!-- Products -->
+    <section class="section" id="sec-products">
+      <div class="topbar">
+        <h2>المنتجات</h2>
+        <button class="btn-green btn-sm" onclick="openProductModal()">+ منتج جديد</button>
+      </div>
+      <div id="productsTable" class="loading">جاري التحميل...</div>
+    </section>
+
+    <!-- Orders -->
+    <section class="section" id="sec-orders">
+      <div class="topbar"><h2>الطلبات</h2></div>
+      <div id="ordersTable" class="loading">جاري التحميل...</div>
+    </section>
+
+    <!-- Subscription -->
+    <section class="section" id="sec-subscription">
+      <div class="topbar"><h2>الاشتراك</h2></div>
+      <div class="panel" id="currentSubBox">جاري التحميل...</div>
+      <h3>الباقات المتاحة</h3>
+      <div class="planGrid" id="plansGrid"></div>
+    </section>
+  </main>
+</div>
+
+<!-- Product modal -->
+<div class="modal-bg" id="productModalBg">
+  <div class="modal">
+    <h3 id="productModalTitle">منتج جديد</h3>
+    <input type="hidden" id="productId">
+    <input id="productName" placeholder="اسم المنتج">
+    <textarea id="productDesc" placeholder="الوصف" rows="2"></textarea>
+    <input id="productPrice" type="number" placeholder="السعر (دج)">
+    <input id="productStock" type="number" placeholder="الكمية المتوفرة" value="0">
+    <input id="productImage" placeholder="رابط صورة المنتج">
+    <input id="productCategory" placeholder="الفئة (مثال: ملابس)">
+    <button class="btn-primary" onclick="saveProduct()">حفظ</button>
+    <button class="btn-ghost" onclick="closeProductModal()">إلغاء</button>
+    <p id="productMsg" class="muted"></p>
+  </div>
+</div>
+
+<!-- Subscription payment modal -->
+<div class="modal-bg" id="payModalBg">
+  <div class="modal">
+    <h3>طلب اشتراك</h3>
+    <input type="hidden" id="payPlanId">
+    <p id="payPlanName" style="color:var(--accent);font-weight:700;"></p>
+    <p class="muted">اخترتم طريقة: تحويل بنكي / بريدي (BaridiMob / CCP)</p>
+    <p class="muted">بعد إرسال المبلغ، سيقوم الأدمن بتفعيل اشتراككم يدوياً خلال ساعات قليلة.</p>
+    <button class="btn-primary" onclick="requestSubscriptionPayment()">تأكيد طلب الاشتراك</button>
+    <button class="btn-ghost" onclick="closePayModal()">إلغاء</button>
+    <p id="payMsg" class="muted"></p>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://pmptbireusmsgbylosac.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtcHRiaXJldXNtc2dieWxvc2FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0NTg4MzYsImV4cCI6MjEwNjAzNDgzNn0.WWqtszSNO4OqxfBPNSSIHV5GHMCrhnfjdgfarQgvt3U";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const fmtDzd = n => (n ?? 0).toLocaleString('ar-DZ') + ' دج';
+const fmtDate = d => d ? new Date(d).toLocaleDateString('ar-DZ') : '-';
+let myStoreId = null;
+let isSignup = false;
+
+// ---------- AUTH ----------
+function toggleMode(){
+  isSignup = !isSignup;
+  document.getElementById('signupFields').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('authTitle').textContent = isSignup ? 'إنشاء حساب تاجر جديد' : 'تسجيل دخول التاجر';
+  document.getElementById('authBtn').textContent = isSignup ? 'إنشاء الحساب' : 'دخول';
+  document.getElementById('authBtn').onclick = isSignup ? doSignup : doLogin;
+  document.getElementById('switchLink').textContent = isSignup ? 'لديك حساب بالفعل؟ سجّل الدخول' : 'ليس لديك حساب؟ أنشئ حساباً جديداً';
+  document.getElementById('errMsg').textContent = '';
+  document.getElementById('okMsg').textContent = '';
+}
+
+async function doSignup(){
+  const errEl = document.getElementById('errMsg'), okEl = document.getElementById('okMsg');
+  errEl.textContent = ''; okEl.textContent = '';
+  const full_name = document.getElementById('suName').value.trim();
+  const phone = document.getElementById('suPhone').value.trim();
+  const email = document.getElementById('authEmail').value.trim();
+  const password = document.getElementById('authPass').value;
+  if(!full_name || !phone || !email || !password){ errEl.textContent = 'يرجى ملء كل الحقول'; return; }
+
+  const { data, error } = await sb.auth.signUp({ email, password, options: { data: { full_name, phone } } });
+  if(error){ errEl.textContent = 'خطأ: ' + error.message; return; }
+
+  if(data.session){
+    enterApp();
+  } else {
+    okEl.textContent = 'تم إنشاء الحساب. إذا طُلب منكم تأكيد البريد، تحققوا من صندوق الوارد ثم سجّلوا الدخول.';
+    toggleMode();
+  }
+}
+
+async function doLogin(){
+  const email = document.getElementById('authEmail').value.trim();
+  const pass = document.getElementById('authPass').value;
+  const errEl = document.getElementById('errMsg');
+  errEl.textContent = '';
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if(error){ errEl.textContent = 'خطأ في تسجيل الدخول: ' + error.message; return; }
+
+  const { data: profile } = await sb.from('profiles').select('role').eq('id', data.user.id).single();
+  if(profile && profile.role === 'admin'){
+    errEl.textContent = 'هذا حساب أدمن، استخدموا لوحة تحكم المشرف بدل هذه الصفحة.';
+    await sb.auth.signOut();
+    return;
+  }
+  enterApp();
+}
+
+async function doLogout(){ await sb.auth.signOut(); location.reload(); }
+
+function enterApp(){
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'grid';
+  loadOverview();
+}
+
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if(session){
+    const { data: profile } = await sb.from('profiles').select('role').eq('id', session.user.id).single();
+    if(profile && profile.role !== 'admin') enterApp();
+  }
+})();
+
+// ---------- NAV ----------
+document.querySelectorAll('.nav-item[data-sec]').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav-item[data-sec]').forEach(n=>n.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+    document.getElementById('sec-'+el.dataset.sec).classList.add('active');
+    const loaders = {overview:loadOverview, store:loadStore, products:loadProducts, orders:loadOrders, subscription:loadSubscription};
+    loaders[el.dataset.sec] && loaders[el.dataset.sec]();
+  });
+});
+
+async function getMyStore(){
+  const { data:{ user } } = await sb.auth.getUser();
+  const { data } = await sb.from('substores').select('*').eq('merchant_id', user.id).maybeSingle();
+  myStoreId = data?.id || null;
+  return data;
+}
+
+// ---------- OVERVIEW ----------
+async function loadOverview(){
+  const el = document.getElementById('overviewBox');
+  const store = await getMyStore();
+  const { data:{ user } } = await sb.auth.getUser();
+  const { data: sub } = await sb.from('merchant_subscriptions').select('status, trial_ends_at, current_period_end, pricing_plans(name, monthly_price_dzd)').eq('merchant_id', user.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
+
+  let storeBlock = store
+    ? `<p>متجركم: <b>${store.store_name}</b> — الحالة: <span class="badge badge-${store.status}">${store.status}</span></p>`
+    : `<p class="muted">لم تُنشئوا متجركم بعد. اذهبوا إلى "متجري" لإنشائه الآن.</p>`;
+
+  let subBlock = sub
+    ? `<p>باقتكم: <b>${sub.pricing_plans?.name||'-'}</b> — الحالة: <span class="badge badge-${sub.status}">${sub.status}</span>
+       ${sub.status==='trial' ? `— تنتهي التجربة يوم ${fmtDate(sub.trial_ends_at)}` : ''}</p>`
+    : '';
+
+  el.innerHTML = `<div class="panel">${storeBlock}${subBlock}</div>`;
+}
+
+// ---------- STORE ----------
+async function loadStore(){
+  const store = await getMyStore();
+  if(store){
+    document.getElementById('storeId').value = store.id;
+    document.getElementById('storeName').value = store.store_name;
+    document.getElementById('storeSlug').value = store.slug;
+    document.getElementById('storeWhatsapp').value = store.whatsapp_number || '';
+    document.getElementById('storeWilaya').value = store.wilaya || '';
+    document.getElementById('storeLogo').value = store.logo_url || '';
+    document.getElementById('storeColor').value = store.theme_color || '#0d6efd';
+  }
+}
+async function saveStore(){
+  const msgEl = document.getElementById('storeMsg');
+  const { data:{ user } } = await sb.auth.getUser();
+  const id = document.getElementById('storeId').value;
+  const payload = {
+    merchant_id: user.id,
+    store_name: document.getElementById('storeName').value.trim(),
+    slug: document.getElementById('storeSlug').value.trim().toLowerCase().replace(/\s+/g,'-'),
+    whatsapp_number: document.getElementById('storeWhatsapp').value.trim(),
+    wilaya: document.getElementById('storeWilaya').value.trim(),
+    logo_url: document.getElementById('storeLogo').value.trim(),
+    theme_color: document.getElementById('storeColor').value
+  };
+  if(!payload.store_name || !payload.slug){ msgEl.textContent = 'اسم المتجر ورابطه إلزاميان.'; return; }
+
+  const { error } = id
+    ? await sb.from('substores').update(payload).eq('id', id)
+    : await sb.from('substores').insert(payload);
+
+  if(error){ msgEl.textContent = 'خطأ: ' + error.message; return; }
+  msgEl.textContent = 'تم الحفظ بنجاح ✅';
+  loadStore();
+}
+
+// ---------- PRODUCTS ----------
+async function loadProducts(){
+  const el = document.getElementById('productsTable');
+  const store = await getMyStore();
+  if(!store){ el.innerHTML = '<p class="muted">أنشئوا متجركم أولاً من قسم "متجري".</p>'; return; }
+  const { data, error } = await sb.from('products').select('*').eq('substore_id', store.id).order('created_at',{ascending:false});
+  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  if(!data.length){ el.innerHTML = '<p class="muted">لا توجد منتجات بعد.</p>'; return; }
+  let rows = data.map(p=>`<tr>
+    <td>${p.name}</td><td>${fmtDzd(p.price_dzd)}</td><td>${p.stock}</td>
+    <td><span class="badge badge-${p.is_active?'active':'frozen'}">${p.is_active?'مفعّل':'موقوف'}</span></td>
+    <td>
+      <button class="btn-sm" style="background:var(--panel2);color:var(--text);" onclick='openProductModal(${JSON.stringify(p)})'>تعديل</button>
+      <button class="btn-sm btn-danger" onclick="deleteProduct('${p.id}')">حذف</button>
+    </td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>الاسم</th><th>السعر</th><th>المخزون</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function openProductModal(p){
+  document.getElementById('productModalTitle').textContent = p ? 'تعديل المنتج' : 'منتج جديد';
+  document.getElementById('productId').value = p?.id || '';
+  document.getElementById('productName').value = p?.name || '';
+  document.getElementById('productDesc').value = p?.description || '';
+  document.getElementById('productPrice').value = p?.price_dzd || '';
+  document.getElementById('productStock').value = p?.stock ?? 0;
+  document.getElementById('productImage').value = p?.image_url || '';
+  document.getElementById('productCategory').value = p?.category || '';
+  document.getElementById('productMsg').textContent = '';
+  document.getElementById('productModalBg').classList.add('show');
+}
+function closeProductModal(){ document.getElementById('productModalBg').classList.remove('show'); }
+async function saveProduct(){
+  const msgEl = document.getElementById('productMsg');
+  const store = await getMyStore();
+  if(!store){ msgEl.textContent = 'أنشئوا متجركم أولاً.'; return; }
+  const id = document.getElementById('productId').value;
+  const payload = {
+    substore_id: store.id,
+    name: document.getElementById('productName').value.trim(),
+    description: document.getElementById('productDesc').value.trim(),
+    price_dzd: parseInt(document.getElementById('productPrice').value)||0,
+    stock: parseInt(document.getElementById('productStock').value)||0,
+    image_url: document.getElementById('productImage').value.trim(),
+    category: document.getElementById('productCategory').value.trim()
+  };
+  const { error } = id ? await sb.from('products').update(payload).eq('id', id) : await sb.from('products').insert(payload);
+  if(error){ msgEl.textContent = 'خطأ: ' + error.message; return; }
+  closeProductModal(); loadProducts();
+}
+async function deleteProduct(id){
+  if(!confirm('حذف هذا المنتج نهائياً؟')) return;
+  const { error } = await sb.from('products').delete().eq('id', id);
+  if(error) alert('خطأ: '+error.message); else loadProducts();
+}
+
+// ---------- ORDERS ----------
+async function loadOrders(){
+  const el = document.getElementById('ordersTable');
+  const store = await getMyStore();
+  if(!store){ el.innerHTML = '<p class="muted">أنشئوا متجركم أولاً.</p>'; return; }
+  const { data, error } = await sb.from('orders').select('*').eq('substore_id', store.id).order('created_at',{ascending:false});
+  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  if(!data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات بعد.</p>'; return; }
+  const statuses = ['new','confirmed','shipped','delivered','returned','cancelled'];
+  const statusLabels = {new:'جديد',confirmed:'مؤكَّد',shipped:'تم الشحن',delivered:'تم التسليم',returned:'مرتجع',cancelled:'ملغى'};
+  let rows = data.map(o=>`<tr>
+    <td>${o.order_number}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td>
+    <td>${fmtDzd(o.total_dzd)}</td>
+    <td>
+      <select onchange="updateOrderStatus('${o.id}', this.value)">
+        ${statuses.map(s=>`<option value="${s}" ${s===o.order_status?'selected':''}>${statusLabels[s]}</option>`).join('')}
+      </select>
+    </td>
+    <td>${fmtDate(o.created_at)}</td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>رقم الطلب</th><th>الزبون</th><th>الهاتف</th><th>المجموع</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function updateOrderStatus(id, status){
+  const { error } = await sb.from('orders').update({order_status: status}).eq('id', id);
+  if(error) alert('خطأ: '+error.message);
+}
+
+// ---------- SUBSCRIPTION ----------
+async function loadSubscription(){
+  const { data:{ user } } = await sb.auth.getUser();
+  const { data: sub } = await sb.from('merchant_subscriptions').select('id, status, trial_ends_at, current_period_end, pricing_plans(id, name, monthly_price_dzd)').eq('merchant_id', user.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
+
+  document.getElementById('currentSubBox').innerHTML = sub ? `
+    <p>الباقة الحالية: <b>${sub.pricing_plans?.name}</b></p>
+    <p>الحالة: <span class="badge badge-${sub.status}">${sub.status}</span></p>
+    ${sub.status==='trial' ? `<p class="muted">تنتهي فترة التجربة المجانية يوم ${fmtDate(sub.trial_ends_at)}</p>` : ''}
+    ${sub.status==='active' ? `<p class="muted">ينتهي الاشتراك الحالي يوم ${fmtDate(sub.current_period_end)}</p>` : ''}
+  ` : '<p class="muted">لا يوجد اشتراك بعد.</p>';
+
+  const { data: plans } = await sb.from('pricing_plans').select('*').eq('is_active', true).order('monthly_price_dzd');
+  document.getElementById('plansGrid').innerHTML = plans.map(p=>`
+    <div class="planCard ${sub?.pricing_plans?.id===p.id ? 'current' : ''}">
+      <h4>${p.name}</h4>
+      <div class="price">${fmtDzd(p.monthly_price_dzd)}<span class="muted">/شهر</span></div>
+      <p class="muted">${p.max_products ? 'حتى '+p.max_products+' منتج' : 'منتجات غير محدودة'}</p>
+      <p class="muted">${p.max_orders_per_month ? 'حتى '+p.max_orders_per_month+' طلب/شهر' : 'طلبات غير محدودة'}</p>
+      <button class="btn-primary btn-sm" style="width:100%;margin-top:8px;" onclick='openPayModal("${p.id}","${p.name}")'>اختيار هذه الباقة</button>
+    </div>
+  `).join('');
+}
+function openPayModal(planId, planName){
+  document.getElementById('payPlanId').value = planId;
+  document.getElementById('payPlanName').textContent = 'الباقة: ' + planName;
+  document.getElementById('payMsg').textContent = '';
+  document.getElementById('payModalBg').classList.add('show');
+}
+function closePayModal(){ document.getElementById('payModalBg').classList.remove('show'); }
+async function requestSubscriptionPayment(){
+  const msgEl = document.getElementById('payMsg');
+  const { data:{ user } } = await sb.auth.getUser();
+  const planId = document.getElementById('payPlanId').value;
+
+  const { data: sub } = await sb.from('merchant_subscriptions').select('id').eq('merchant_id', user.id).order('created_at',{ascending:false}).limit(1).single();
+  const { data: plan } = await sb.from('pricing_plans').select('monthly_price_dzd').eq('id', planId).single();
+
+  const { error } = await sb.from('subscription_payments').insert({
+    subscription_id: sub.id,
+    amount_dzd: plan.monthly_price_dzd,
+    payment_method: 'bank_transfer',
+    status: 'pending'
+  });
+  if(error){ msgEl.textContent = 'خطأ: ' + error.message; return; }
+  msgEl.textContent = 'تم إرسال طلبكم، سيُفعَّل الاشتراك بعد تأكيد الدفع من الإدارة.';
+  setTimeout(()=>{ closePayModal(); loadSubscription(); }, 1800);
+}
+</script>
+</body>
+</html>
