@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>لوحة تحكم المشرف — dz-store-factory</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
+    --text:#e8eaed; --muted:#9aa2af; --accent:#3ddc97; --accent2:#0d6efd;
+    --danger:#ff5470; --warn:#ffb020;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text);}
+  #loginScreen{min-height:100vh;display:flex;align-items:center;justify-content:center;}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:28px;width:320px;}
+  .card h2{margin-top:0;text-align:center;color:var(--accent);}
+  input,select,textarea{width:100%;padding:10px 12px;margin-bottom:12px;border-radius:8px;border:1px solid var(--border);background:var(--panel2);color:var(--text);font-size:14px;}
+  button{cursor:pointer;border:none;border-radius:8px;padding:10px 16px;font-size:14px;font-weight:600;}
+  .btn-primary{background:var(--accent2);color:#fff;width:100%;}
+  .btn-green{background:var(--accent);color:#062018;}
+  .btn-danger{background:var(--danger);color:#fff;}
+  .btn-warn{background:var(--warn);color:#241900;}
+  .btn-sm{padding:6px 10px;font-size:12px;margin-inline-end:6px;}
+  #errMsg{color:var(--danger);font-size:13px;text-align:center;min-height:18px;}
+  #app{display:none;min-height:100vh;grid-template-columns:220px 1fr;}
+  .sidebar{background:var(--panel);border-inline-end:1px solid var(--border);padding:18px 10px;position:sticky;top:0;height:100vh;}
+  .sidebar h1{font-size:16px;color:var(--accent);padding:0 10px;margin-bottom:20px;}
+  .nav-item{display:block;padding:10px 12px;border-radius:8px;color:var(--muted);cursor:pointer;margin-bottom:4px;font-size:14px;}
+  .nav-item:hover{background:var(--panel2);color:var(--text);}
+  .nav-item.active{background:var(--accent2);color:#fff;}
+  main{padding:24px;overflow-x:auto;}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;}
+  .topbar h2{margin:0;font-size:20px;}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:24px;}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;}
+  .kpi .num{font-size:26px;font-weight:700;color:var(--accent);}
+  .kpi .lbl{color:var(--muted);font-size:13px;}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border-radius:12px;overflow:hidden;}
+  th,td{padding:10px 12px;text-align:right;border-bottom:1px solid var(--border);font-size:13px;}
+  th{background:var(--panel2);color:var(--muted);}
+  tr:last-child td{border-bottom:none;}
+  .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+  .badge-active{background:#14311f;color:var(--accent);}
+  .badge-trial{background:#26210a;color:var(--warn);}
+  .badge-frozen,.badge-expired,.badge-cancelled{background:#301418;color:var(--danger);}
+  .badge-pending,.badge-new{background:#1a2333;color:#6ea8fe;}
+  .section{display:none;}
+  .section.active{display:block;}
+  .toolbar{margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50;}
+  .modal-bg.show{display:flex;}
+  .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;width:90%;max-width:420px;max-height:85vh;overflow-y:auto;}
+  .muted{color:var(--muted);font-size:12px;}
+  .loading{color:var(--muted);padding:20px;text-align:center;}
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <div class="card">
+    <h2>لوحة تحكم المشرف</h2>
+    <input id="loginEmail" type="email" placeholder="البريد الإلكتروني">
+    <input id="loginPass" type="password" placeholder="كلمة المرور">
+    <button class="btn-primary" onclick="doLogin()">دخول</button>
+    <p id="errMsg"></p>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <div class="sidebar">
+    <h1>dz-store-factory</h1>
+    <div class="nav-item active" data-sec="dashboard">لوحة القيادة</div>
+    <div class="nav-item" data-sec="merchants">التجار</div>
+    <div class="nav-item" data-sec="substores">المتاجر الفرعية</div>
+    <div class="nav-item" data-sec="orders">الطلبات</div>
+    <div class="nav-item" data-sec="payments">دفعات الاشتراك</div>
+    <div class="nav-item" data-sec="adpackages">باقات الإعلانات</div>
+    <div class="nav-item" data-sec="adorders">طلبات الإعلانات</div>
+    <div class="nav-item" style="margin-top:30px;color:var(--danger);" onclick="doLogout()">تسجيل الخروج</div>
+  </div>
+
+  <main>
+    <!-- Dashboard -->
+    <section class="section active" id="sec-dashboard">
+      <div class="topbar"><h2>لوحة القيادة</h2></div>
+      <div class="kpis" id="kpis"><div class="loading">جاري التحميل...</div></div>
+    </section>
+
+    <!-- Merchants -->
+    <section class="section" id="sec-merchants">
+      <div class="topbar"><h2>التجار</h2></div>
+      <div id="merchantsTable" class="loading">جاري التحميل...</div>
+    </section>
+
+    <!-- Substores -->
+    <section class="section" id="sec-substores">
+      <div class="topbar"><h2>المتاجر الفرعية</h2></div>
+      <div id="substoresTable" class="loading">جاري التحميل...</div>
+    </section>
+
+    <!-- Orders -->
+    <section class="section" id="sec-orders">
+      <div class="topbar"><h2>كل الطلبات</h2></div>
+      <div id="ordersTable" class="loading">جاري التحميل...</div>
+    </section>
+
+    <!-- Subscription payments -->
+    <section class="section" id="sec-payments">
+      <div class="topbar"><h2>دفعات الاشتراك</h2></div>
+      <div id="paymentsTable" class="loading">جاري التحميل...</div>
+    </section>
+
+    <!-- Ad packages -->
+    <section class="section" id="sec-adpackages">
+      <div class="topbar">
+        <h2>باقات الإعلانات</h2>
+        <button class="btn-green btn-sm" onclick="openAdPackageModal()">+ باقة جديدة</button>
+      </div>
+      <div id="adPackagesTable" class="loading">جاري التحميل...</div>
+    </section>
+
+    <!-- Ad orders -->
+    <section class="section" id="sec-adorders">
+      <div class="topbar"><h2>طلبات الإعلانات</h2></div>
+      <div id="adOrdersTable" class="loading">جاري التحميل...</div>
+    </section>
+  </main>
+</div>
+
+<!-- Modal: Ad package create/edit -->
+<div class="modal-bg" id="adPkgModalBg">
+  <div class="modal">
+    <h3 id="adPkgModalTitle">باقة إعلانية جديدة</h3>
+    <input type="hidden" id="adPkgId">
+    <input id="adPkgName" placeholder="اسم الباقة">
+    <select id="adPkgType">
+      <option value="ad_copy_single">نص إعلاني واحد</option>
+      <option value="ad_copy_bundle">حزمة نصوص</option>
+      <option value="ugc_video_single">فيديو UGC واحد</option>
+      <option value="growth_bundle">حزمة نمو</option>
+    </select>
+    <input id="adPkgPrice" type="number" placeholder="السعر (دج)">
+    <input id="adPkgTexts" type="number" placeholder="عدد النصوص" value="0">
+    <input id="adPkgVideos" type="number" placeholder="عدد الفيديوهات" value="0">
+    <textarea id="adPkgDesc" placeholder="الوصف" rows="3"></textarea>
+    <button class="btn-primary" onclick="saveAdPackage()">حفظ</button>
+    <button class="btn-sm" style="width:100%;margin-top:8px;background:var(--panel2);color:var(--text);" onclick="closeAdPackageModal()">إلغاء</button>
+  </div>
+</div>
+
+<!-- Modal: deliver ad order -->
+<div class="modal-bg" id="deliverModalBg">
+  <div class="modal">
+    <h3>تسليم طلب إعلاني</h3>
+    <input type="hidden" id="deliverOrderId">
+    <p class="muted">روابط التسليم (فيديوهات UGC) — رابط في كل سطر</p>
+    <textarea id="deliverUrls" rows="3" placeholder="https://..."></textarea>
+    <button class="btn-green" onclick="markDelivered()">تحديد كمُسلَّم</button>
+    <button class="btn-sm" style="width:100%;margin-top:8px;background:var(--panel2);color:var(--text);" onclick="closeDeliverModal()">إلغاء</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = "https://pmptbireusmsgbylosac.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtcHRiaXJldXNtc2dieWxvc2FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0NTg4MzYsImV4cCI6MjEwNjAzNDgzNn0.WWqtszSNO4OqxfBPNSSIHV5GHMCrhnfjdgfarQgvt3U";
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const fmtDzd = n => (n ?? 0).toLocaleString('ar-DZ') + ' دج';
+const fmtDate = d => d ? new Date(d).toLocaleDateString('ar-DZ') : '-';
+
+// ---------- AUTH ----------
+async function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('errMsg');
+  errEl.textContent = '';
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+  if(error){ errEl.textContent = 'خطأ في تسجيل الدخول: ' + error.message; return; }
+
+  const { data: profile, error: profErr } = await sb.from('profiles').select('role').eq('id', data.user.id).single();
+  if(profErr || !profile || profile.role !== 'admin'){
+    errEl.textContent = 'هذا الحساب ليس حساب أدمن.';
+    await sb.auth.signOut();
+    return;
+  }
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'grid';
+  loadDashboard();
+}
+
+async function doLogout(){
+  await sb.auth.signOut();
+  location.reload();
+}
+
+// check existing session on load
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if(session){
+    const { data: profile } = await sb.from('profiles').select('role').eq('id', session.user.id).single();
+    if(profile && profile.role === 'admin'){
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('app').style.display = 'grid';
+      loadDashboard();
+    }
+  }
+})();
+
+// ---------- NAV ----------
+document.querySelectorAll('.nav-item[data-sec]').forEach(el=>{
+  el.addEventListener('click', ()=>{
+    document.querySelectorAll('.nav-item[data-sec]').forEach(n=>n.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+    document.getElementById('sec-'+el.dataset.sec).classList.add('active');
+    const loaders = {merchants:loadMerchants, substores:loadSubstores, orders:loadOrders, payments:loadPayments, adpackages:loadAdPackages, adorders:loadAdOrders, dashboard:loadDashboard};
+    loaders[el.dataset.sec] && loaders[el.dataset.sec]();
+  });
+});
+
+// ---------- DASHBOARD ----------
+async function loadDashboard(){
+  const kpisEl = document.getElementById('kpis');
+  const [{count:merchantCount}, {count:storeCount}, {count:activeStoreCount}, {count:orderCount}, {data:orders}] = await Promise.all([
+    sb.from('profiles').select('*', {count:'exact', head:true}).eq('role','merchant'),
+    sb.from('substores').select('*', {count:'exact', head:true}),
+    sb.from('substores').select('*', {count:'exact', head:true}).eq('status','active'),
+    sb.from('orders').select('*', {count:'exact', head:true}),
+    sb.from('orders').select('total_dzd')
+  ]);
+  const totalSales = (orders||[]).reduce((s,o)=>s+(o.total_dzd||0),0);
+  kpisEl.innerHTML = `
+    <div class="kpi"><div class="num">${merchantCount??0}</div><div class="lbl">إجمالي التجار</div></div>
+    <div class="kpi"><div class="num">${storeCount??0}</div><div class="lbl">إجمالي المتاجر الفرعية</div></div>
+    <div class="kpi"><div class="num">${activeStoreCount??0}</div><div class="lbl">متاجر نشطة</div></div>
+    <div class="kpi"><div class="num">${orderCount??0}</div><div class="lbl">إجمالي الطلبات</div></div>
+    <div class="kpi"><div class="num">${fmtDzd(totalSales)}</div><div class="lbl">إجمالي قيمة الطلبات</div></div>
+  `;
+}
+
+// ---------- MERCHANTS ----------
+async function loadMerchants(){
+  const el = document.getElementById('merchantsTable');
+  const { data, error } = await sb.from('profiles')
+    .select('id, full_name, phone, created_at, merchant_subscriptions(status, trial_ends_at, current_period_end, pricing_plans(name))')
+    .eq('role','merchant').order('created_at', {ascending:false});
+  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  if(!data.length){ el.innerHTML = '<p class="muted">لا يوجد تجار بعد.</p>'; return; }
+  let rows = data.map(m=>{
+    const sub = (m.merchant_subscriptions||[])[0] || {};
+    return `<tr>
+      <td>${m.full_name||'-'}</td>
+      <td>${m.phone||'-'}</td>
+      <td>${sub.pricing_plans?.name || '-'}</td>
+      <td><span class="badge badge-${sub.status||'pending'}">${sub.status||'-'}</span></td>
+      <td>${fmtDate(sub.trial_ends_at)}</td>
+      <td>${fmtDate(m.created_at)}</td>
+    </tr>`;
+  }).join('');
+  el.innerHTML = `<table><thead><tr><th>الاسم</th><th>الهاتف</th><th>الباقة</th><th>حالة الاشتراك</th><th>نهاية التجربة</th><th>تاريخ التسجيل</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ---------- SUBSTORES ----------
+async function loadSubstores(){
+  const el = document.getElementById('substoresTable');
+  const { data, error } = await sb.from('substores').select('id, store_name, slug, wilaya, status, created_at, profiles(full_name)').order('created_at', {ascending:false});
+  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  if(!data.length){ el.innerHTML = '<p class="muted">لا توجد متاجر بعد.</p>'; return; }
+  let rows = data.map(s=>`<tr>
+    <td>${s.store_name}</td>
+    <td>${s.profiles?.full_name || '-'}</td>
+    <td>${s.wilaya||'-'}</td>
+    <td><span class="badge badge-${s.status}">${s.status}</span></td>
+    <td>
+      ${s.status!=='active' ? `<button class="btn-sm btn-green" onclick="setStoreStatus('${s.id}','active')">تفعيل</button>` : ''}
+      ${s.status!=='frozen' ? `<button class="btn-sm btn-danger" onclick="setStoreStatus('${s.id}','frozen')">تجميد</button>` : ''}
+    </td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>اسم المتجر</th><th>التاجر</th><th>الولاية</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function setStoreStatus(id, status){
+  const { error } = await sb.from('substores').update({status}).eq('id', id);
+  if(error) alert('خطأ: '+error.message); else loadSubstores();
+}
+
+// ---------- ORDERS ----------
+async function loadOrders(){
+  const el = document.getElementById('ordersTable');
+  const { data, error } = await sb.from('orders').select('order_number, customer_name, customer_phone, total_dzd, payment_method, order_status, created_at, substores(store_name)').order('created_at', {ascending:false}).limit(200);
+  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  if(!data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات بعد.</p>'; return; }
+  let rows = data.map(o=>`<tr>
+    <td>${o.order_number}</td>
+    <td>${o.substores?.store_name||'-'}</td>
+    <td>${o.customer_name}</td>
+    <td>${o.customer_phone}</td>
+    <td>${fmtDzd(o.total_dzd)}</td>
+    <td>${o.payment_method==='cod'?'عند الاستلام':'إلكتروني'}</td>
+    <td><span class="badge badge-${o.order_status}">${o.order_status}</span></td>
+    <td>${fmtDate(o.created_at)}</td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>رقم الطلب</th><th>المتجر</th><th>الزبون</th><th>الهاتف</th><th>المجموع</th><th>الدفع</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+// ---------- SUBSCRIPTION PAYMENTS ----------
+async function loadPayments(){
+  const el = document.getElementById('paymentsTable');
+  const { data, error } = await sb.from('subscription_payments').select('id, amount_dzd, payment_method, status, chargily_reference, created_at, merchant_subscriptions(profiles(full_name))').order('created_at', {ascending:false});
+  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  if(!data.length){ el.innerHTML = '<p class="muted">لا توجد دفعات بعد.</p>'; return; }
+  let rows = data.map(p=>`<tr>
+    <td>${p.merchant_subscriptions?.profiles?.full_name||'-'}</td>
+    <td>${fmtDzd(p.amount_dzd)}</td>
+    <td>${p.payment_method==='bank_transfer'?'تحويل بنكي/بريدي':'Chargily'}</td>
+    <td><span class="badge badge-${p.status}">${p.status}</span></td>
+    <td>
+      ${p.status!=='confirmed' ? `<button class="btn-sm btn-green" onclick="confirmPayment('${p.id}')">تأكيد</button>` : '—'}
+    </td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>التاجر</th><th>المبلغ</th><th>الطريقة</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function confirmPayment(id){
+  const { error } = await sb.from('subscription_payments').update({status:'confirmed', paid_at: new Date().toISOString()}).eq('id', id);
+  if(error) alert('خطأ: '+error.message); else loadPayments();
+}
+
+// ---------- AD PACKAGES ----------
+async function loadAdPackages(){
+  const el = document.getElementById('adPackagesTable');
+  const { data, error } = await sb.from('ad_packages').select('*').order('price_dzd');
+  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  let rows = data.map(p=>`<tr>
+    <td>${p.name}</td><td>${p.type}</td><td>${fmtDzd(p.price_dzd)}</td>
+    <td>${p.quantity_texts} نص / ${p.quantity_videos} فيديو</td>
+    <td><span class="badge badge-${p.is_active?'active':'frozen'}">${p.is_active?'مفعّلة':'موقوفة'}</span></td>
+    <td>
+      <button class="btn-sm" style="background:var(--panel2);color:var(--text);" onclick='openAdPackageModal(${JSON.stringify(p)})'>تعديل</button>
+      <button class="btn-sm btn-${p.is_active?'danger':'green'}" onclick="toggleAdPackage('${p.id}', ${!p.is_active})">${p.is_active?'إيقاف':'تفعيل'}</button>
+    </td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>الاسم</th><th>النوع</th><th>السعر</th><th>المحتوى</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function openAdPackageModal(p){
+  document.getElementById('adPkgModalTitle').textContent = p ? 'تعديل الباقة' : 'باقة إعلانية جديدة';
+  document.getElementById('adPkgId').value = p?.id || '';
+  document.getElementById('adPkgName').value = p?.name || '';
+  document.getElementById('adPkgType').value = p?.type || 'ad_copy_single';
+  document.getElementById('adPkgPrice').value = p?.price_dzd || '';
+  document.getElementById('adPkgTexts').value = p?.quantity_texts ?? 0;
+  document.getElementById('adPkgVideos').value = p?.quantity_videos ?? 0;
+  document.getElementById('adPkgDesc').value = p?.description || '';
+  document.getElementById('adPkgModalBg').classList.add('show');
+}
+function closeAdPackageModal(){ document.getElementById('adPkgModalBg').classList.remove('show'); }
+async function saveAdPackage(){
+  const id = document.getElementById('adPkgId').value;
+  const payload = {
+    name: document.getElementById('adPkgName').value,
+    type: document.getElementById('adPkgType').value,
+    price_dzd: parseInt(document.getElementById('adPkgPrice').value)||0,
+    quantity_texts: parseInt(document.getElementById('adPkgTexts').value)||0,
+    quantity_videos: parseInt(document.getElementById('adPkgVideos').value)||0,
+    description: document.getElementById('adPkgDesc').value
+  };
+  const { error } = id ? await sb.from('ad_packages').update(payload).eq('id', id) : await sb.from('ad_packages').insert(payload);
+  if(error){ alert('خطأ: '+error.message); return; }
+  closeAdPackageModal(); loadAdPackages();
+}
+async function toggleAdPackage(id, val){
+  const { error } = await sb.from('ad_packages').update({is_active: val}).eq('id', id);
+  if(error) alert('خطأ: '+error.message); else loadAdPackages();
+}
+
+// ---------- AD ORDERS ----------
+async function loadAdOrders(){
+  const el = document.getElementById('adOrdersTable');
+  const { data, error } = await sb.from('ad_orders').select('id, status, ugc_brief, delivery_urls, created_at, profiles(full_name), ad_packages(name, type)').order('created_at', {ascending:false});
+  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  if(!data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات إعلانية بعد.</p>'; return; }
+  let rows = data.map(o=>`<tr>
+    <td>${o.profiles?.full_name||'-'}</td>
+    <td>${o.ad_packages?.name||'-'}</td>
+    <td><span class="badge badge-${o.status==='delivered'?'active':(o.status==='pending_payment'?'pending':'trial')}">${o.status}</span></td>
+    <td style="max-width:180px;white-space:normal;">${o.ugc_brief||'-'}</td>
+    <td>
+      ${o.status!=='delivered' && (o.ad_packages?.type==='ugc_video_single'||o.ad_packages?.type==='growth_bundle') ? `<button class="btn-sm btn-green" onclick="openDeliverModal('${o.id}')">تسليم</button>` : ''}
+    </td>
+  </tr>`).join('');
+  el.innerHTML = `<table><thead><tr><th>التاجر</th><th>الباقة</th><th>الحالة</th><th>ملاحظات التاجر</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function openDeliverModal(id){
+  document.getElementById('deliverOrderId').value = id;
+  document.getElementById('deliverUrls').value = '';
+  document.getElementById('deliverModalBg').classList.add('show');
+}
+function closeDeliverModal(){ document.getElementById('deliverModalBg').classList.remove('show'); }
+async function markDelivered(){
+  const id = document.getElementById('deliverOrderId').value;
+  const urls = document.getElementById('deliverUrls').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const { error } = await sb.from('ad_orders').update({status:'delivered', delivery_urls:urls}).eq('id', id);
+  if(error){ alert('خطأ: '+error.message); return; }
+  closeDeliverModal(); loadAdOrders();
+}
+</script>
+</body>
+</html>
