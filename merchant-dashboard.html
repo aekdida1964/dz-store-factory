@@ -122,6 +122,7 @@
         </div>
         <button class="btn-primary" onclick="saveStore()">حفظ بيانات المتجر</button>
         <p id="storeMsg" class="muted"></p>
+        <p id="storeLink" class="muted"></p>
       </div>
     </section>
 
@@ -167,6 +168,15 @@
   </div>
 </div>
 
+<!-- Order details modal -->
+<div class="modal-bg" id="orderModalBg">
+  <div class="modal">
+    <h3>تفاصيل الطلب</h3>
+    <div id="orderDetails"></div>
+    <button class="btn-ghost" onclick="document.getElementById('orderModalBg').classList.remove('show')">إغلاق</button>
+  </div>
+</div>
+
 <!-- Subscription payment modal -->
 <div class="modal-bg" id="payModalBg">
   <div class="modal">
@@ -188,6 +198,8 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const fmtDzd = n => (n ?? 0).toLocaleString('ar-DZ') + ' دج';
 const fmtDate = d => d ? new Date(d).toLocaleDateString('ar-DZ') : '-';
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let productMap = {}, orderMap = {}, planMap = {};
 let myStoreId = null;
 let isSignup = false;
 
@@ -282,12 +294,18 @@ async function loadOverview(){
   const { data:{ user } } = await sb.auth.getUser();
   const { data: sub } = await sb.from('merchant_subscriptions').select('status, trial_ends_at, current_period_end, pricing_plans(name, monthly_price_dzd)').eq('merchant_id', user.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
 
+  const storeUrl = store ? location.origin + '/store.html?s=' + encodeURIComponent(store.slug) : '';
   let storeBlock = store
-    ? `<p>متجركم: <b>${store.store_name}</b> — الحالة: <span class="badge badge-${store.status}">${store.status}</span></p>`
+    ? `<p>متجركم: <b>${esc(store.store_name)}</b> — الحالة: <span class="badge badge-${esc(store.status)}">${esc(store.status)}</span></p>` +
+      (store.status==='active'
+        ? `<p class="muted">رابط متجركم: <a href="${esc(storeUrl)}" target="_blank" style="color:var(--accent)">${esc(storeUrl)}</a></p>`
+        : store.status==='pending'
+          ? `<p class="muted">متجركم بانتظار موافقة الإدارة، وسيظهر للزبائن بعد التفعيل.</p>`
+          : `<p class="muted">متجركم مجمَّد حالياً، فعّلوا اشتراككم لإعادته.</p>`)
     : `<p class="muted">لم تُنشئوا متجركم بعد. اذهبوا إلى "متجري" لإنشائه الآن.</p>`;
 
   let subBlock = sub
-    ? `<p>باقتكم: <b>${sub.pricing_plans?.name||'-'}</b> — الحالة: <span class="badge badge-${sub.status}">${sub.status}</span>
+    ? `<p>باقتكم: <b>${esc(sub.pricing_plans?.name||'-')}</b> — الحالة: <span class="badge badge-${sub.status}">${sub.status}</span>
        ${sub.status==='trial' ? `— تنتهي التجربة يوم ${fmtDate(sub.trial_ends_at)}` : ''}</p>`
     : '';
 
@@ -305,6 +323,10 @@ async function loadStore(){
     document.getElementById('storeWilaya').value = store.wilaya || '';
     document.getElementById('storeLogo').value = store.logo_url || '';
     document.getElementById('storeColor').value = store.theme_color || '#0d6efd';
+    const url = location.origin + '/store.html?s=' + encodeURIComponent(store.slug);
+    document.getElementById('storeLink').innerHTML = store.status==='active'
+      ? `رابط متجركم: <a href="${esc(url)}" target="_blank" style="color:var(--accent)">${esc(url)}</a>`
+      : 'رابط متجركم سيعمل بعد موافقة الإدارة.';
   }
 }
 async function saveStore(){
@@ -339,17 +361,19 @@ async function loadProducts(){
   const { data, error } = await sb.from('products').select('*').eq('substore_id', store.id).order('created_at',{ascending:false});
   if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد منتجات بعد.</p>'; return; }
+  productMap = Object.fromEntries(data.map(x=>[x.id,x]));
   let rows = data.map(p=>`<tr>
-    <td>${p.name}</td><td>${fmtDzd(p.price_dzd)}</td><td>${p.stock}</td>
+    <td>${esc(p.name)}</td><td>${fmtDzd(p.price_dzd)}</td><td>${p.stock}</td>
     <td><span class="badge badge-${p.is_active?'active':'frozen'}">${p.is_active?'مفعّل':'موقوف'}</span></td>
     <td>
-      <button class="btn-sm" style="background:var(--panel2);color:var(--text);" onclick='openProductModal(${JSON.stringify(p)})'>تعديل</button>
+      <button class="btn-sm" style="background:var(--panel2);color:var(--text);" onclick="openProductModal('${p.id}')">تعديل</button>
       <button class="btn-sm btn-danger" onclick="deleteProduct('${p.id}')">حذف</button>
     </td>
   </tr>`).join('');
   el.innerHTML = `<table><thead><tr><th>الاسم</th><th>السعر</th><th>المخزون</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
-function openProductModal(p){
+function openProductModal(arg){
+  const p = arg ? productMap[arg] : null;
   document.getElementById('productModalTitle').textContent = p ? 'تعديل المنتج' : 'منتج جديد';
   document.getElementById('productId').value = p?.id || '';
   document.getElementById('productName').value = p?.name || '';
@@ -396,8 +420,9 @@ async function loadOrders(){
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات بعد.</p>'; return; }
   const statuses = ['new','confirmed','shipped','delivered','returned','cancelled'];
   const statusLabels = {new:'جديد',confirmed:'مؤكَّد',shipped:'تم الشحن',delivered:'تم التسليم',returned:'مرتجع',cancelled:'ملغى'};
+  orderMap = Object.fromEntries(data.map(x=>[x.id,x]));
   let rows = data.map(o=>`<tr>
-    <td>${o.order_number}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td>
+    <td>${esc(o.order_number)}</td><td>${esc(o.customer_name)}</td><td>${esc(o.customer_phone)}</td>
     <td>${fmtDzd(o.total_dzd)}</td>
     <td>
       <select onchange="updateOrderStatus('${o.id}', this.value)">
@@ -405,8 +430,19 @@ async function loadOrders(){
       </select>
     </td>
     <td>${fmtDate(o.created_at)}</td>
+    <td><button class="btn-sm" style="background:var(--panel2);color:var(--text);" onclick="openOrderModal('${o.id}')">تفاصيل</button></td>
   </tr>`).join('');
-  el.innerHTML = `<table><thead><tr><th>رقم الطلب</th><th>الزبون</th><th>الهاتف</th><th>المجموع</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>${rows}</tbody></table>`;
+  el.innerHTML = `<table><thead><tr><th>رقم الطلب</th><th>الزبون</th><th>الهاتف</th><th>المجموع</th><th>الحالة</th><th>التاريخ</th><th>التفاصيل</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+function openOrderModal(id){
+  const o = orderMap[id]; if(!o) return;
+  const items = (Array.isArray(o.items) ? o.items : []).map(i=>`<li>${esc(i.name)} × ${esc(i.qty)} — ${fmtDzd((Number(i.price_dzd)||0)*(Number(i.qty)||0))}</li>`).join('');
+  document.getElementById('orderDetails').innerHTML = `
+    <p><b>${esc(o.order_number)}</b> — ${fmtDate(o.created_at)}</p>
+    <p>الزبون: ${esc(o.customer_name)}<br>الهاتف: <a href="tel:${esc(o.customer_phone)}" style="color:var(--accent)">${esc(o.customer_phone)}</a><br>الولاية: ${esc(o.wilaya||'-')}<br>العنوان: ${esc(o.address||'-')}</p>
+    <ul style="padding-inline-start:18px">${items}</ul>
+    <p><b>المجموع: ${fmtDzd(o.total_dzd)}</b> — ${o.payment_method==='cod'?'الدفع عند الاستلام':'دفع إلكتروني'}</p>`;
+  document.getElementById('orderModalBg').classList.add('show');
 }
 async function updateOrderStatus(id, status){
   const { error } = await sb.from('orders').update({order_status: status}).eq('id', id);
@@ -419,24 +455,26 @@ async function loadSubscription(){
   const { data: sub } = await sb.from('merchant_subscriptions').select('id, status, trial_ends_at, current_period_end, pricing_plans(id, name, monthly_price_dzd)').eq('merchant_id', user.id).order('created_at',{ascending:false}).limit(1).maybeSingle();
 
   document.getElementById('currentSubBox').innerHTML = sub ? `
-    <p>الباقة الحالية: <b>${sub.pricing_plans?.name}</b></p>
+    <p>الباقة الحالية: <b>${esc(sub.pricing_plans?.name)}</b></p>
     <p>الحالة: <span class="badge badge-${sub.status}">${sub.status}</span></p>
     ${sub.status==='trial' ? `<p class="muted">تنتهي فترة التجربة المجانية يوم ${fmtDate(sub.trial_ends_at)}</p>` : ''}
     ${sub.status==='active' ? `<p class="muted">ينتهي الاشتراك الحالي يوم ${fmtDate(sub.current_period_end)}</p>` : ''}
   ` : '<p class="muted">لا يوجد اشتراك بعد.</p>';
 
   const { data: plans } = await sb.from('pricing_plans').select('*').eq('is_active', true).order('monthly_price_dzd');
+  planMap = Object.fromEntries((plans||[]).map(x=>[x.id,x]));
   document.getElementById('plansGrid').innerHTML = plans.map(p=>`
     <div class="planCard ${sub?.pricing_plans?.id===p.id ? 'current' : ''}">
-      <h4>${p.name}</h4>
+      <h4>${esc(p.name)}</h4>
       <div class="price">${fmtDzd(p.monthly_price_dzd)}<span class="muted">/شهر</span></div>
       <p class="muted">${p.max_products ? 'حتى '+p.max_products+' منتج' : 'منتجات غير محدودة'}</p>
       <p class="muted">${p.max_orders_per_month ? 'حتى '+p.max_orders_per_month+' طلب/شهر' : 'طلبات غير محدودة'}</p>
-      <button class="btn-primary btn-sm" style="width:100%;margin-top:8px;" onclick='openPayModal("${p.id}","${p.name}")'>اختيار هذه الباقة</button>
+      <button class="btn-primary btn-sm" style="width:100%;margin-top:8px;" onclick="openPayModal('${p.id}')">اختيار هذه الباقة</button>
     </div>
   `).join('');
 }
-function openPayModal(planId, planName){
+function openPayModal(planId){
+  const planName = planMap[planId]?.name || '';
   document.getElementById('payPlanId').value = planId;
   document.getElementById('payPlanName').textContent = 'الباقة: ' + planName;
   document.getElementById('payMsg').textContent = '';

@@ -169,6 +169,8 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const fmtDzd = n => (n ?? 0).toLocaleString('ar-DZ') + ' دج';
 const fmtDate = d => d ? new Date(d).toLocaleDateString('ar-DZ') : '-';
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let adPkgMap = {};
 
 // ---------- AUTH ----------
 async function doLogin(){
@@ -251,9 +253,9 @@ async function loadMerchants(){
   let rows = data.map(m=>{
     const sub = (m.merchant_subscriptions||[])[0] || {};
     return `<tr>
-      <td>${m.full_name||'-'}</td>
-      <td>${m.phone||'-'}</td>
-      <td>${sub.pricing_plans?.name || '-'}</td>
+      <td>${esc(m.full_name||'-')}</td>
+      <td>${esc(m.phone||'-')}</td>
+      <td>${esc(sub.pricing_plans?.name || '-')}</td>
       <td><span class="badge badge-${sub.status||'pending'}">${sub.status||'-'}</span></td>
       <td>${fmtDate(sub.trial_ends_at)}</td>
       <td>${fmtDate(m.created_at)}</td>
@@ -269,9 +271,9 @@ async function loadSubstores(){
   if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد متاجر بعد.</p>'; return; }
   let rows = data.map(s=>`<tr>
-    <td>${s.store_name}</td>
-    <td>${s.profiles?.full_name || '-'}</td>
-    <td>${s.wilaya||'-'}</td>
+    <td>${esc(s.store_name)}</td>
+    <td>${esc(s.profiles?.full_name || '-')}</td>
+    <td>${esc(s.wilaya||'-')}</td>
     <td><span class="badge badge-${s.status}">${s.status}</span></td>
     <td>
       ${s.status!=='active' ? `<button class="btn-sm btn-green" onclick="setStoreStatus('${s.id}','active')">تفعيل</button>` : ''}
@@ -293,9 +295,9 @@ async function loadOrders(){
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات بعد.</p>'; return; }
   let rows = data.map(o=>`<tr>
     <td>${o.order_number}</td>
-    <td>${o.substores?.store_name||'-'}</td>
-    <td>${o.customer_name}</td>
-    <td>${o.customer_phone}</td>
+    <td>${esc(o.substores?.store_name||'-')}</td>
+    <td>${esc(o.customer_name)}</td>
+    <td>${esc(o.customer_phone)}</td>
     <td>${fmtDzd(o.total_dzd)}</td>
     <td>${o.payment_method==='cod'?'عند الاستلام':'إلكتروني'}</td>
     <td><span class="badge badge-${o.order_status}">${o.order_status}</span></td>
@@ -311,7 +313,7 @@ async function loadPayments(){
   if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد دفعات بعد.</p>'; return; }
   let rows = data.map(p=>`<tr>
-    <td>${p.merchant_subscriptions?.profiles?.full_name||'-'}</td>
+    <td>${esc(p.merchant_subscriptions?.profiles?.full_name||'-')}</td>
     <td>${fmtDzd(p.amount_dzd)}</td>
     <td>${p.payment_method==='bank_transfer'?'تحويل بنكي/بريدي':'Chargily'}</td>
     <td><span class="badge badge-${p.status}">${p.status}</span></td>
@@ -331,18 +333,20 @@ async function loadAdPackages(){
   const el = document.getElementById('adPackagesTable');
   const { data, error } = await sb.from('ad_packages').select('*').order('price_dzd');
   if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  adPkgMap = Object.fromEntries(data.map(x=>[x.id,x]));
   let rows = data.map(p=>`<tr>
-    <td>${p.name}</td><td>${p.type}</td><td>${fmtDzd(p.price_dzd)}</td>
+    <td>${esc(p.name)}</td><td>${esc(p.type)}</td><td>${fmtDzd(p.price_dzd)}</td>
     <td>${p.quantity_texts} نص / ${p.quantity_videos} فيديو</td>
     <td><span class="badge badge-${p.is_active?'active':'frozen'}">${p.is_active?'مفعّلة':'موقوفة'}</span></td>
     <td>
-      <button class="btn-sm" style="background:var(--panel2);color:var(--text);" onclick='openAdPackageModal(${JSON.stringify(p)})'>تعديل</button>
+      <button class="btn-sm" style="background:var(--panel2);color:var(--text);" onclick="openAdPackageModal('${p.id}')">تعديل</button>
       <button class="btn-sm btn-${p.is_active?'danger':'green'}" onclick="toggleAdPackage('${p.id}', ${!p.is_active})">${p.is_active?'إيقاف':'تفعيل'}</button>
     </td>
   </tr>`).join('');
   el.innerHTML = `<table><thead><tr><th>الاسم</th><th>النوع</th><th>السعر</th><th>المحتوى</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
-function openAdPackageModal(p){
+function openAdPackageModal(arg){
+  const p = arg ? adPkgMap[arg] : null;
   document.getElementById('adPkgModalTitle').textContent = p ? 'تعديل الباقة' : 'باقة إعلانية جديدة';
   document.getElementById('adPkgId').value = p?.id || '';
   document.getElementById('adPkgName').value = p?.name || '';
@@ -380,10 +384,10 @@ async function loadAdOrders(){
   if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات إعلانية بعد.</p>'; return; }
   let rows = data.map(o=>`<tr>
-    <td>${o.profiles?.full_name||'-'}</td>
-    <td>${o.ad_packages?.name||'-'}</td>
+    <td>${esc(o.profiles?.full_name||'-')}</td>
+    <td>${esc(o.ad_packages?.name||'-')}</td>
     <td><span class="badge badge-${o.status==='delivered'?'active':(o.status==='pending_payment'?'pending':'trial')}">${o.status}</span></td>
-    <td style="max-width:180px;white-space:normal;">${o.ugc_brief||'-'}</td>
+    <td style="max-width:180px;white-space:normal;">${esc(o.ugc_brief||'-')}</td>
     <td>
       ${o.status!=='delivered' && (o.ad_packages?.type==='ugc_video_single'||o.ad_packages?.type==='growth_bundle') ? `<button class="btn-sm btn-green" onclick="openDeliverModal('${o.id}')">تسليم</button>` : ''}
     </td>
