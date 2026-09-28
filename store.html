@@ -263,7 +263,8 @@ async function submitOrder(){
   sending = false;
   if(error){
     $('goBtn').disabled = false; $('goBtn').textContent = 'تأكيد الطلب';
-    err.textContent = 'تعذّر إرسال الطلب، أعيدوا المحاولة بعد قليل.';
+    const m = String(error.message || '');
+    err.textContent = m.startsWith('USER:') ? m.slice(5).trim() : 'تعذّر إرسال الطلب، أعيدوا المحاولة بعد قليل.';
     return;
   }
   showSuccess(items, total, name, phone, wilaya);
@@ -283,7 +284,7 @@ function showSuccess(items, total, name, phone, wilaya){
       ${wa ? `<a style="background:#25d366;color:#fff" href="https://wa.me/${wa}?text=${encodeURIComponent(msg)}" target="_blank" rel="noopener">إرسال تفاصيل الطلب عبر واتساب</a><br>` : ''}
       <button style="background:var(--accent);color:var(--on-accent)" id="doneBtn">متابعة التسوق</button>
     </div>`;
-  $('doneBtn').onclick = closeSheet;
+  $('doneBtn').onclick = () => location.reload();
 }
 </script>
 </body>

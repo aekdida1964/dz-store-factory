@@ -44,7 +44,7 @@
   .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
   .badge-active{background:#14311f;color:var(--accent);}
   .badge-trial{background:#26210a;color:var(--warn);}
-  .badge-frozen,.badge-expired,.badge-cancelled{background:#301418;color:var(--danger);}
+  .badge-frozen,.badge-expired,.badge-cancelled,.badge-failed{background:#301418;color:var(--danger);}
   .badge-pending,.badge-new{background:#1a2333;color:#6ea8fe;}
   .section{display:none;}
   .section.active{display:block;}
@@ -78,6 +78,7 @@
     <div class="nav-item" data-sec="payments">دفعات الاشتراك</div>
     <div class="nav-item" data-sec="adpackages">باقات الإعلانات</div>
     <div class="nav-item" data-sec="adorders">طلبات الإعلانات</div>
+    <div class="nav-item" data-sec="settings">الإعدادات</div>
     <div class="nav-item" style="margin-top:30px;color:var(--danger);" onclick="doLogout()">تسجيل الخروج</div>
   </div>
 
@@ -124,7 +125,19 @@
     <!-- Ad orders -->
     <section class="section" id="sec-adorders">
       <div class="topbar"><h2>طلبات الإعلانات</h2></div>
+      <p id="adGenMsg" class="muted"></p>
       <div id="adOrdersTable" class="loading">جاري التحميل...</div>
+    </section>
+    <!-- Settings -->
+    <section class="section" id="sec-settings">
+      <div class="topbar"><h2>الإعدادات</h2></div>
+      <div class="card" style="width:100%;max-width:520px;">
+        <h3 style="margin-top:0;">تعليمات الدفع التي يراها التجار</h3>
+        <p class="muted">اكتبوا رقم الحساب البريدي (CCP) أو BaridiMob أو RIB وطريقة إرسال الإثبات. تظهر للتاجر عند طلب اشتراك أو باقة إعلانية.</p>
+        <textarea id="payInstrText" rows="6" placeholder="مثال: CCP رقم ... باسم ..."></textarea>
+        <button class="btn-primary" onclick="saveSettings()">حفظ</button>
+        <p class="muted" id="settingsMsg"></p>
+      </div>
     </section>
   </main>
 </div>
@@ -147,6 +160,18 @@
     <textarea id="adPkgDesc" placeholder="الوصف" rows="3"></textarea>
     <button class="btn-primary" onclick="saveAdPackage()">حفظ</button>
     <button class="btn-sm" style="width:100%;margin-top:8px;background:var(--panel2);color:var(--text);" onclick="closeAdPackageModal()">إلغاء</button>
+  </div>
+</div>
+
+<!-- Modal: review generated content -->
+<div class="modal-bg" id="textsModalBg">
+  <div class="modal" style="max-width:560px;">
+    <h3>مراجعة المحتوى</h3>
+    <p class="muted" id="reviewMeta"></p>
+    <div id="textsBody"></div>
+    <button class="btn-green" id="approveBtn" style="width:100%;margin-top:8px;" onclick="saveReview(true)">حفظ واعتماد</button>
+    <button class="btn-sm" id="saveBtn" style="width:100%;margin-top:8px;background:var(--panel2);color:var(--text);" onclick="saveReview(false)">حفظ التعديلات فقط</button>
+    <button class="btn-sm" style="width:100%;margin-top:8px;background:var(--panel2);color:var(--text);" onclick="closeReview()">إغلاق</button>
   </div>
 </div>
 
@@ -217,7 +242,7 @@ document.querySelectorAll('.nav-item[data-sec]').forEach(el=>{
     el.classList.add('active');
     document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
     document.getElementById('sec-'+el.dataset.sec).classList.add('active');
-    const loaders = {merchants:loadMerchants, substores:loadSubstores, orders:loadOrders, payments:loadPayments, adpackages:loadAdPackages, adorders:loadAdOrders, dashboard:loadDashboard};
+    const loaders = {merchants:loadMerchants, substores:loadSubstores, orders:loadOrders, payments:loadPayments, adpackages:loadAdPackages, adorders:loadAdOrders, settings:loadSettings, dashboard:loadDashboard};
     loaders[el.dataset.sec] && loaders[el.dataset.sec]();
   });
 });
@@ -309,19 +334,25 @@ async function loadOrders(){
 // ---------- SUBSCRIPTION PAYMENTS ----------
 async function loadPayments(){
   const el = document.getElementById('paymentsTable');
-  const { data, error } = await sb.from('subscription_payments').select('id, amount_dzd, payment_method, status, chargily_reference, created_at, merchant_subscriptions(profiles(full_name))').order('created_at', {ascending:false});
+  const { data, error } = await sb.from('subscription_payments').select('id, amount_dzd, payment_method, status, chargily_reference, created_at, pricing_plans(name), merchant_subscriptions(profiles(full_name))').order('created_at', {ascending:false});
   if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد دفعات بعد.</p>'; return; }
   let rows = data.map(p=>`<tr>
     <td>${esc(p.merchant_subscriptions?.profiles?.full_name||'-')}</td>
+    <td>${esc(p.pricing_plans?.name||'-')}</td>
     <td>${fmtDzd(p.amount_dzd)}</td>
     <td>${p.payment_method==='bank_transfer'?'تحويل بنكي/بريدي':'Chargily'}</td>
     <td><span class="badge badge-${p.status}">${p.status}</span></td>
     <td>
-      ${p.status!=='confirmed' ? `<button class="btn-sm btn-green" onclick="confirmPayment('${p.id}')">تأكيد</button>` : '—'}
+      ${p.status==='pending' ? `<button class="btn-sm btn-green" onclick="confirmPayment('${p.id}')">تأكيد</button><button class="btn-sm btn-danger" onclick="rejectPayment('${p.id}')">رفض</button>` : '—'}
     </td>
   </tr>`).join('');
-  el.innerHTML = `<table><thead><tr><th>التاجر</th><th>المبلغ</th><th>الطريقة</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+  el.innerHTML = `<table><thead><tr><th>التاجر</th><th>الباقة</th><th>المبلغ</th><th>الطريقة</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function rejectPayment(id){
+  if(!confirm('رفض هذا الطلب؟')) return;
+  const { error } = await sb.from('subscription_payments').update({status:'failed'}).eq('id', id);
+  if(error) alert('خطأ: '+error.message); else loadPayments();
 }
 async function confirmPayment(id){
   const { error } = await sb.from('subscription_payments').update({status:'confirmed', paid_at: new Date().toISOString()}).eq('id', id);
@@ -378,22 +409,162 @@ async function toggleAdPackage(id, val){
 }
 
 // ---------- AD ORDERS ----------
+const AD_STATUS = {pending_payment:'بانتظار الدفع', paid:'مدفوع', ai_generated:'مسودة بانتظار المراجعة', in_production:'قيد التنفيذ', delivered:'مُسلَّم', cancelled:'ملغى'};
+let adOrderMap = {};
+const shortRef = id => String(id).replace(/-/g,'').slice(0,8).toUpperCase();
+
+function briefSummary(b){
+  if(!b || typeof b !== 'object') return '-';
+  const parts = [];
+  if(b.product) parts.push('المنتج: ' + b.product);
+  if(b.price) parts.push('السعر: ' + b.price);
+  if(b.audience) parts.push('الفئة: ' + b.audience);
+  if(b.tone) parts.push('الأسلوب: ' + (b.tone === 'darija' ? 'عامية' : 'فصحى'));
+  if(b.platform) parts.push('المنصة: ' + b.platform);
+  if(b.benefits) parts.push('المزايا: ' + b.benefits);
+  if(b.notes) parts.push('ملاحظات: ' + b.notes);
+  return parts.join(' | ') || '-';
+}
+
+function adActions(o){
+  const pk = o.ad_packages || {};
+  const hasContent = (pk.quantity_texts || 0) + (pk.quantity_videos || 0) > 0;
+  const hasVideos = (pk.quantity_videos || 0) > 0;
+  const btn = (cls, fn, label) => `<button class="btn-sm ${cls}" onclick="${fn}('${o.id}')">${label}</button>`;
+  let out = '';
+  if(o.status === 'pending_payment') out += btn('btn-green','confirmAdPayment','تأكيد الدفع') + btn('btn-danger','cancelAdOrder','إلغاء');
+  else if(o.status === 'paid') out += hasContent ? btn('btn-green','generateAdContent','توليد المحتوى') : btn('btn-green','startAdProduction','بدء التنفيذ');
+  else if(o.status === 'ai_generated') out += btn('btn-green','openReview','مراجعة واعتماد');
+  else if(o.status === 'in_production' && hasVideos) out += btn('btn-green','openDeliverModal','تسليم الفيديوهات');
+  if(o.status !== 'ai_generated' && ((o.generated_ad_copy || []).length || (o.video_scripts || []).length))
+    out += `<button class="btn-sm" style="background:var(--panel2);color:var(--text);" onclick="openReview('${o.id}')">عرض</button>`;
+  return out || '—';
+}
+
 async function loadAdOrders(){
   const el = document.getElementById('adOrdersTable');
-  const { data, error } = await sb.from('ad_orders').select('id, status, ugc_brief, delivery_urls, created_at, profiles(full_name), ad_packages(name, type)').order('created_at', {ascending:false});
-  if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
+  const { data, error } = await sb.from('ad_orders')
+    .select('id, status, brief, amount_dzd, generated_ad_copy, video_scripts, gen_source, delivery_urls, created_at, profiles(full_name, phone), ad_packages(name, type, quantity_texts, quantity_videos)')
+    .order('created_at', {ascending:false});
+  if(error){ el.innerHTML = 'خطأ: ' + esc(error.message); return; }
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات إعلانية بعد.</p>'; return; }
-  let rows = data.map(o=>`<tr>
-    <td>${esc(o.profiles?.full_name||'-')}</td>
-    <td>${esc(o.ad_packages?.name||'-')}</td>
-    <td><span class="badge badge-${o.status==='delivered'?'active':(o.status==='pending_payment'?'pending':'trial')}">${o.status}</span></td>
-    <td style="max-width:180px;white-space:normal;">${esc(o.ugc_brief||'-')}</td>
-    <td>
-      ${o.status!=='delivered' && (o.ad_packages?.type==='ugc_video_single'||o.ad_packages?.type==='growth_bundle') ? `<button class="btn-sm btn-green" onclick="openDeliverModal('${o.id}')">تسليم</button>` : ''}
-    </td>
+  adOrderMap = Object.fromEntries(data.map(o => [o.id, o]));
+  const rows = data.map(o => `<tr>
+    <td><b>${esc(shortRef(o.id))}</b></td>
+    <td>${esc(o.profiles?.full_name || '-')}<br><span class="muted">${esc(o.profiles?.phone || '')}</span></td>
+    <td>${esc(o.ad_packages?.name || '-')}</td>
+    <td>${fmtDzd(o.amount_dzd)}</td>
+    <td><span class="badge badge-${o.status==='delivered'?'active':(o.status==='pending_payment'?'pending':(o.status==='cancelled'?'cancelled':'trial'))}">${esc(AD_STATUS[o.status] || o.status)}</span></td>
+    <td style="max-width:240px;white-space:normal;font-size:12px;">${esc(briefSummary(o.brief))}</td>
+    <td>${adActions(o)}</td>
   </tr>`).join('');
-  el.innerHTML = `<table><thead><tr><th>التاجر</th><th>الباقة</th><th>الحالة</th><th>ملاحظات التاجر</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+  el.innerHTML = `<table><thead><tr><th>المرجع</th><th>التاجر</th><th>الباقة</th><th>المبلغ</th><th>الحالة</th><th>تفاصيل الطلب</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
+
+async function setAdStatus(id, patch){
+  const { error } = await sb.from('ad_orders').update(patch).eq('id', id);
+  if(error){ alert('خطأ: ' + error.message); return false; }
+  loadAdOrders();
+  return true;
+}
+function confirmAdPayment(id){ setAdStatus(id, {status:'paid'}); }
+function startAdProduction(id){ setAdStatus(id, {status:'in_production'}); }
+function cancelAdOrder(id){ if(confirm('إلغاء هذا الطلب؟')) setAdStatus(id, {status:'cancelled'}); }
+
+let adBusy = false;
+async function generateAdContent(id){
+  if(adBusy) return;
+  const o = adOrderMap[id]; if(!o) return;
+  if(!o.brief || !o.brief.product){ alert('تفاصيل الطلب ناقصة.'); return; }
+  const nTexts = o.ad_packages?.quantity_texts || 0;
+  const nVideos = o.ad_packages?.quantity_videos || 0;
+  const msg = document.getElementById('adGenMsg');
+  adBusy = true;
+  msg.textContent = 'جاري التوليد بواسطة Gemini...';
+  let texts = [], scripts = [], source = 'gemini', note = '';
+  try{
+    const { data, error } = await sb.functions.invoke('generate-ad-copy', { body: { order_id: id } });
+    if(error || !data || !data.ok) throw new Error((data && (data.detail || data.error)) || (error && error.message) || 'فشل الاتصال');
+    texts = data.texts || []; scripts = data.video_scripts || [];
+  }catch(e){
+    source = 'template';
+    texts = generateAdCopy(o.brief, nTexts);
+    scripts = generateVideoScripts(o.brief, nVideos);
+    note = 'تعذّر Gemini (' + String(e.message).slice(0, 120) + ') فاستُعملت القوالب. ';
+  }
+  const patch = { gen_source: source, status: 'ai_generated' };
+  if(nTexts) patch.generated_ad_copy = texts;
+  if(nVideos) patch.video_scripts = scripts;
+  const { error: upErr } = await sb.from('ad_orders').update(patch).eq('id', id);
+  adBusy = false;
+  msg.textContent = upErr ? 'خطأ في الحفظ: ' + upErr.message : note + 'تم التوليد. راجعوا المحتوى ثم اعتمدوه.';
+  if(!upErr) loadAdOrders();
+}
+
+let reviewId = null;
+function openReview(id){
+  const o = adOrderMap[id]; if(!o) return;
+  reviewId = id;
+  const texts = o.generated_ad_copy || [], scripts = o.video_scripts || [];
+  const editable = o.status === 'ai_generated';
+  let html = '';
+  if(texts.length) html += '<h4>النصوص الإعلانية</h4>' + texts.map((_, i) => `<textarea data-k="t" data-i="${i}" rows="8" ${editable ? '' : 'readonly'}></textarea>`).join('');
+  if(scripts.length) html += '<h4>سيناريوهات الفيديو</h4>' + scripts.map((_, i) => `<textarea data-k="s" data-i="${i}" rows="10" ${editable ? '' : 'readonly'}></textarea>`).join('');
+  const body = document.getElementById('textsBody');
+  body.innerHTML = html || '<p class="muted">لا يوجد محتوى.</p>';
+  body.querySelectorAll('textarea').forEach(t => { t.value = (t.dataset.k === 't' ? texts : scripts)[Number(t.dataset.i)] || ''; });
+  document.getElementById('reviewMeta').textContent = 'مصدر التوليد: ' + (o.gen_source === 'gemini' ? 'Gemini' : (o.gen_source === 'template' ? 'قوالب جاهزة' : '-'));
+  document.getElementById('approveBtn').style.display = editable ? 'block' : 'none';
+  document.getElementById('saveBtn').style.display = editable ? 'block' : 'none';
+  document.getElementById('textsModalBg').classList.add('show');
+}
+function closeReview(){ document.getElementById('textsModalBg').classList.remove('show'); }
+async function saveReview(approve){
+  const o = adOrderMap[reviewId]; if(!o) return;
+  const texts = [], scripts = [];
+  document.querySelectorAll('#textsBody textarea').forEach(t => { (t.dataset.k === 't' ? texts : scripts).push(t.value.trim()); });
+  const patch = {};
+  if(texts.length) patch.generated_ad_copy = texts.filter(Boolean);
+  if(scripts.length) patch.video_scripts = scripts.filter(Boolean);
+  if(approve){
+    const hasVideos = (o.ad_packages?.quantity_videos || 0) > 0;
+    patch.status = hasVideos ? 'in_production' : 'delivered';
+  }
+  const { error } = await sb.from('ad_orders').update(patch).eq('id', reviewId);
+  if(error){ alert('خطأ: ' + error.message); return; }
+  closeReview(); loadAdOrders();
+}
+
+// سيناريو فيديو بالقوالب (بديل عند تعذّر Gemini)
+function generateVideoScripts(brief, n){
+  const clean = (v, max) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const P = clean(brief.product, 80);
+  const dj = brief.tone === 'darija';
+  const B = String(brief.benefits ?? '').split(/[\n،,;]+/).map(x => clean(x, 80)).filter(Boolean).slice(0, 3);
+  const priceNum = Number(brief.price);
+  const price = priceNum > 0 ? priceNum.toLocaleString('ar-DZ') + ' دج' : '';
+  const cod = brief.cod !== false;
+  const hooks = dj
+    ? [`واش راك تقلّب على ${P}؟ شوف هادي!`, `جبتلكم ${P} وراح نوريكم واش فيه.`, `قبل ما تشري أي حاجة، شوف ${P}.`]
+    : [`هل تبحث عن ${P}؟ شاهد هذا.`, `أعرض لكم ${P} وما يقدّمه.`, `قبل أن تشتري، شاهد ${P}.`];
+  const cta = dj
+    ? `اطلب دروك${cod ? '، وتخلص كي توصلك السلعة' : ''}.`
+    : `اطلبه الآن${cod ? '، والدفع عند الاستلام' : ''}.`;
+  const out = [];
+  for(let i = 0; i < n; i++){
+    out.push(
+      '🎬 سيناريو فيديو UGC (15–25 ثانية)\n\n' +
+      'الخطّاف (أول 3 ثوانٍ):\n' + hooks[i % hooks.length] + '\n\n' +
+      'المحتوى:\n' + (B.map(b => '• ' + b).join('\n') || '• اعرض المنتج واذكر أهم ميزاته') + '\n\n' +
+      'الدعوة للطلب:\n' + cta + '\n\n' +
+      'اللقطات المقترحة:\n1) لقطة قريبة للمنتج\n2) المؤدّي يعرضه بيده\n3) لقطة استعمال حقيقية\n4) لقطة ختامية مع اسم المنتج\n\n' +
+      'النص الظاهر على الشاشة:\n' + P + (price ? ' — ' + price : '') +
+      '\n\n⚠️ يؤدّيه شخص حقيقي، ولا تُقدَّم فيه شهادة زبون مخترعة.'
+    );
+  }
+  return out;
+}
+
 function openDeliverModal(id){
   document.getElementById('deliverOrderId').value = id;
   document.getElementById('deliverUrls').value = '';
@@ -402,10 +573,76 @@ function openDeliverModal(id){
 function closeDeliverModal(){ document.getElementById('deliverModalBg').classList.remove('show'); }
 async function markDelivered(){
   const id = document.getElementById('deliverOrderId').value;
-  const urls = document.getElementById('deliverUrls').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  const urls = document.getElementById('deliverUrls').value.split('\n').map(s => s.trim()).filter(Boolean);
+  if(!urls.length || urls.some(u => !/^https?:\/\//i.test(u))){ alert('أدخلوا روابط صحيحة تبدأ بـ http أو https، رابط في كل سطر.'); return; }
   const { error } = await sb.from('ad_orders').update({status:'delivered', delivery_urls:urls}).eq('id', id);
-  if(error){ alert('خطأ: '+error.message); return; }
+  if(error){ alert('خطأ: ' + error.message); return; }
   closeDeliverModal(); loadAdOrders();
+}
+
+// ---------- SETTINGS ----------
+async function loadSettings(){
+  const { data } = await sb.from('platform_settings').select('value').eq('key','payment_instructions').maybeSingle();
+  document.getElementById('payInstrText').value = data?.value || '';
+  document.getElementById('settingsMsg').textContent = '';
+}
+async function saveSettings(){
+  const value = document.getElementById('payInstrText').value.trim();
+  const { error } = await sb.from('platform_settings').upsert({key:'payment_instructions', value, updated_at:new Date().toISOString()});
+  document.getElementById('settingsMsg').textContent = error ? 'خطأ: ' + error.message : 'تم الحفظ ✅';
+}
+
+// ---------- مولّد النصوص الإعلانية (قوالب جاهزة، بدون ذكاء اصطناعي) ----------
+function generateAdCopy(brief, n){
+  const clean = (v, max) => String(v ?? '').replace(/\s+/g,' ').trim().slice(0, max);
+  const P = clean(brief.product, 80);
+  const A = clean(brief.audience, 80);
+  const dj = brief.tone === 'darija';
+  const platform = ['facebook','instagram','tiktok'].includes(brief.platform) ? brief.platform : 'facebook';
+  const B = String(brief.benefits ?? '').split(/[\n،,;]+/).map(s => clean(s, 80)).filter(Boolean).slice(0, 6);
+  const priceNum = Number(brief.price);
+  const price = priceNum > 0 ? priceNum.toLocaleString('ar-DZ') + ' دج' : '';
+  const cod = brief.cod !== false, del = brief.delivery !== false;
+
+  const list = B.map(b => '✅ ' + b).join('\n');
+  const priceLine = price ? (dj ? `💰 السعر: ${price} فقط` : `💰 السعر: ${price}`) : '';
+  const codLine = cod ? (dj ? '💵 تخلص كي توصلك السلعة، تشوفها وتخلص.' : '💵 الدفع عند الاستلام: افحص المنتج ثم ادفع.') : '';
+  const delLine = del ? (dj ? '🚚 توصيل لكل الولايات.' : '🚚 توصيل إلى جميع الولايات.') : '';
+  const cta = dj ? '📩 اطلب دروك وما تضيّعش الفرصة!' : '📩 اطلبه الآن عبر الرسائل.';
+  const tail = [priceLine, codLine, delLine, cta].filter(Boolean).join('\n');
+  const who = A ? (dj ? `${A}، ` : `إلى ${A}: `) : '';
+
+  const T = [
+    () => [who + (dj ? 'تعبت وانت تقلّب على حاجة تنفعك؟' : 'هل تعبت من البحث عن حلٍّ يناسبك؟'),
+           (dj ? 'الحل عندنا: ' : 'الحل هنا: ') + P + ' 👌', list, tail],
+    () => [dj ? `واش رايك تجرب ${P}؟ 🤔` : `ماذا لو جرّبت ${P}؟ 🤔`, list, tail],
+    () => [`✨ ${P} ✨`, dj ? 'شوف واش يعطيك:' : 'ما الذي ستحصل عليه؟', list, tail],
+    () => [`🔥 اكتشف ${P}!`, list, tail],
+    () => [dj ? `جرّب ${P} بلا خوف 👇` : `جرّب ${P} دون أي مخاطرة 👇`,
+           cod ? (dj ? 'تستلم السلعة، تشوفها، وبعدها تخلص.' : 'تستلم الطلب وتفحصه أولاً، ثم تدفع.') : '',
+           list, [delLine, priceLine, cta].filter(Boolean).join('\n')],
+    () => [dj ? `⏰ ما تأجّلش، جرّب ${P} اليوم!` : `⏰ لا تؤجّل، جرّب ${P} اليوم.`, list, tail],
+    () => [A ? (dj ? `مخصوص لـ ${A} 👇` : `مخصّص لـ ${A} 👇`) : (dj ? 'لكل واحد يحب الجودة والراحة 👇' : 'لكل من يبحث عن الجودة والراحة 👇'), P, list, tail],
+    () => [`تخيّل يومك مع ${P} 😍`, list, cta],
+    () => [`${P} 🔥`, B.slice(0,3).map(b => '• ' + b).join('\n'),
+           [price ? `💰 ${price}` : '', cod ? (dj ? '💵 تخلص عند الاستلام' : '💵 الدفع عند الاستلام') : ''].filter(Boolean).join(' | '), cta],
+    () => [dj ? `علاش تختار ${P}؟` : `لماذا تختار ${P}؟`, B.map((b,i) => `${i+1}. ${b}`).join('\n'), tail]
+  ];
+
+  let order = [0,2,3,4,1,5,6,7,9,8];
+  if(platform === 'tiktok') order = [8,0,2,3,4,1,5,6,7,9];
+
+  const tagBase = P.replace(/[^\p{L}\p{N}]+/gu, '_').replace(/^_+|_+$/g, '');
+  const tags = platform === 'facebook' ? '' :
+    [tagBase ? '#' + tagBase : '', '#الجزائر', del ? '#توصيل_لكل_الولايات' : ''].filter(Boolean).join(' ');
+
+  const out = [];
+  for(let i = 0; i < n; i++){
+    let text = T[order[i % order.length]]().filter(Boolean).join('\n\n');
+    if(tags) text += '\n\n' + tags;
+    out.push(text.replace(/\n{3,}/g, '\n\n').trim());
+  }
+  return out;
 }
 </script>
 </body>

@@ -42,7 +42,7 @@
   .badge{padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
   .badge-active{background:#14311f;color:var(--accent);}
   .badge-trial{background:#26210a;color:var(--warn);}
-  .badge-frozen,.badge-expired,.badge-cancelled{background:#301418;color:var(--danger);}
+  .badge-frozen,.badge-expired,.badge-cancelled,.badge-failed{background:#301418;color:var(--danger);}
   .badge-pending,.badge-new,.badge-confirmed{background:#1a2333;color:#6ea8fe;}
   .section{display:none;}
   .section.active{display:block;}
@@ -89,6 +89,7 @@
     <div class="nav-item" data-sec="store">متجري</div>
     <div class="nav-item" data-sec="products">المنتجات</div>
     <div class="nav-item" data-sec="orders">الطلبات</div>
+    <div class="nav-item" data-sec="ads">الإعلانات</div>
     <div class="nav-item" data-sec="subscription">الاشتراك</div>
     <div class="nav-item" style="margin-top:30px;color:var(--danger);" onclick="doLogout()">تسجيل الخروج</div>
   </div>
@@ -141,6 +142,14 @@
       <div id="ordersTable" class="loading">جاري التحميل...</div>
     </section>
 
+    <!-- Ads -->
+    <section class="section" id="sec-ads">
+      <div class="topbar"><h2>الإعلانات</h2></div>
+      <div class="planGrid" id="adPkgGrid"></div>
+      <h3 style="margin-top:26px;">طلباتي الإعلانية</h3>
+      <div id="adOrdersBox" class="loading">جاري التحميل...</div>
+    </section>
+
     <!-- Subscription -->
     <section class="section" id="sec-subscription">
       <div class="topbar"><h2>الاشتراك</h2></div>
@@ -168,6 +177,50 @@
   </div>
 </div>
 
+<!-- Ad order modal -->
+<div class="modal-bg" id="adOrderModalBg">
+  <div class="modal">
+    <h3 id="adOrderTitle">طلب باقة</h3>
+    <input type="hidden" id="adPkgId">
+    <input id="abProduct" maxlength="80" placeholder="اسم المنتج">
+    <div id="abTextFields">
+      <textarea id="abBenefits" rows="3" maxlength="600" placeholder="مزايا المنتج (ميزة في كل سطر)"></textarea>
+      <input id="abPrice" type="number" placeholder="سعر المنتج بالدج (اختياري)">
+      <input id="abAudience" maxlength="80" placeholder="الفئة المستهدفة (اختياري) مثال: الأمهات">
+      <label class="muted">أسلوب الكتابة</label>
+      <select id="abTone"><option value="darija">عامية جزائرية</option><option value="msa">فصحى مبسّطة</option></select>
+      <label class="muted">منصة الإعلان</label>
+      <select id="abPlatform"><option value="facebook">فيسبوك</option><option value="instagram">إنستغرام</option><option value="tiktok">تيك توك</option></select>
+      <label class="muted"><input type="checkbox" id="abCod" checked style="width:auto;margin-inline-end:6px;">ذكر الدفع عند الاستلام</label>
+      <label class="muted"><input type="checkbox" id="abDel" checked style="width:auto;margin-inline-end:6px;">ذكر التوصيل لكل الولايات</label>
+    </div>
+    <div id="abVideoFields">
+      <textarea id="abNotes" rows="3" maxlength="800" placeholder="صِفوا الفيديو المطلوب وأفكاركم، وضعوا روابط صور أو فيديوهات المنتج"></textarea>
+    </div>
+    <button class="btn-primary" onclick="submitAdOrder()">تأكيد الطلب</button>
+    <button class="btn-ghost" onclick="closeAdOrderModal()">إلغاء</button>
+    <p id="adOrderMsg" class="muted"></p>
+  </div>
+</div>
+
+<!-- Ad payment modal -->
+<div class="modal-bg" id="adPayModalBg">
+  <div class="modal">
+    <h3>تم تسجيل طلبكم</h3>
+    <div id="adPayBody"></div>
+    <button class="btn-ghost" onclick="document.getElementById('adPayModalBg').classList.remove('show')">إغلاق</button>
+  </div>
+</div>
+
+<!-- Ad results modal -->
+<div class="modal-bg" id="adResultModalBg">
+  <div class="modal">
+    <h3>نتائج الطلب</h3>
+    <div id="adResultBody"></div>
+    <button class="btn-ghost" onclick="document.getElementById('adResultModalBg').classList.remove('show')">إغلاق</button>
+  </div>
+</div>
+
 <!-- Order details modal -->
 <div class="modal-bg" id="orderModalBg">
   <div class="modal">
@@ -185,6 +238,7 @@
     <p id="payPlanName" style="color:var(--accent);font-weight:700;"></p>
     <p class="muted">اخترتم طريقة: تحويل بنكي / بريدي (BaridiMob / CCP)</p>
     <p class="muted">بعد إرسال المبلغ، سيقوم الأدمن بتفعيل اشتراككم يدوياً خلال ساعات قليلة.</p>
+    <div id="payInstr"></div>
     <button class="btn-primary" onclick="requestSubscriptionPayment()">تأكيد طلب الاشتراك</button>
     <button class="btn-ghost" onclick="closePayModal()">إلغاء</button>
     <p id="payMsg" class="muted"></p>
@@ -200,6 +254,7 @@ const fmtDzd = n => (n ?? 0).toLocaleString('ar-DZ') + ' دج';
 const fmtDate = d => d ? new Date(d).toLocaleDateString('ar-DZ') : '-';
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let productMap = {}, orderMap = {}, planMap = {};
+const errText = e => { const m = String(e?.message || ''); return m.startsWith('USER:') ? m.slice(5).trim() : 'خطأ: ' + m; };
 let myStoreId = null;
 let isSignup = false;
 
@@ -277,7 +332,7 @@ document.querySelectorAll('.nav-item[data-sec]').forEach(el=>{
     el.classList.add('active');
     document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
     document.getElementById('sec-'+el.dataset.sec).classList.add('active');
-    const loaders = {overview:loadOverview, store:loadStore, products:loadProducts, orders:loadOrders, subscription:loadSubscription};
+    const loaders = {overview:loadOverview, store:loadStore, products:loadProducts, orders:loadOrders, subscription:loadSubscription, ads:loadAds};
     loaders[el.dataset.sec] && loaders[el.dataset.sec]();
   });
 });
@@ -350,7 +405,7 @@ async function saveStore(){
     ? await sb.from('substores').update(payload).eq('id', id)
     : await sb.from('substores').insert(payload);
 
-  if(error){ msgEl.textContent = 'خطأ: ' + error.message; return; }
+  if(error){ msgEl.textContent = errText(error); return; }
   msgEl.textContent = 'تم الحفظ بنجاح ✅';
   loadStore();
 }
@@ -403,7 +458,7 @@ async function saveProduct(){
     category: document.getElementById('productCategory').value.trim()
   };
   const { error } = id ? await sb.from('products').update(payload).eq('id', id) : await sb.from('products').insert(payload);
-  if(error){ msgEl.textContent = 'خطأ: ' + error.message; return; }
+  if(error){ msgEl.textContent = errText(error); return; }
   closeProductModal(); loadProducts();
 }
 async function deleteProduct(id){
@@ -448,7 +503,7 @@ function openOrderModal(id){
 }
 async function updateOrderStatus(id, status){
   const { error } = await sb.from('orders').update({order_status: status}).eq('id', id);
-  if(error) alert('خطأ: '+error.message);
+  if(error){ alert(errText(error)); loadOrders(); }
 }
 
 // ---------- SUBSCRIPTION ----------
@@ -480,7 +535,9 @@ function openPayModal(planId){
   document.getElementById('payPlanId').value = planId;
   document.getElementById('payPlanName').textContent = 'الباقة: ' + planName;
   document.getElementById('payMsg').textContent = '';
+  document.getElementById('payInstr').innerHTML = '';
   document.getElementById('payModalBg').classList.add('show');
+  getPayInstructions().then(t => { document.getElementById('payInstr').innerHTML = instrHtml(t); });
 }
 function closePayModal(){ document.getElementById('payModalBg').classList.remove('show'); }
 async function requestSubscriptionPayment(){
@@ -493,13 +550,143 @@ async function requestSubscriptionPayment(){
 
   const { error } = await sb.from('subscription_payments').insert({
     subscription_id: sub.id,
+    plan_id: planId,
     amount_dzd: plan.monthly_price_dzd,
     payment_method: 'bank_transfer',
     status: 'pending'
   });
-  if(error){ msgEl.textContent = 'خطأ: ' + error.message; return; }
+  if(error){ msgEl.textContent = errText(error); return; }
   msgEl.textContent = 'تم إرسال طلبكم، سيُفعَّل الاشتراك بعد تأكيد الدفع من الإدارة.';
   setTimeout(()=>{ closePayModal(); loadSubscription(); }, 1800);
+}
+
+// ---------- ADS ----------
+let adPkgMap = {}, adOrderMap = {}, payInstrCache = null;
+const AD_STATUS = {pending_payment:'بانتظار الدفع', paid:'مدفوع', ai_generated:'قيد المراجعة', in_production:'قيد التنفيذ', delivered:'مُسلَّم', cancelled:'ملغى'};
+const shortRef = id => String(id).replace(/-/g,'').slice(0,8).toUpperCase();
+const val = id => document.getElementById(id).value.trim();
+
+async function getPayInstructions(){
+  if(payInstrCache !== null) return payInstrCache;
+  const { data } = await sb.from('platform_settings').select('value').eq('key','payment_instructions').maybeSingle();
+  payInstrCache = (data?.value || '').trim();
+  return payInstrCache;
+}
+const instrHtml = t => t
+  ? `<div class="panel" style="white-space:pre-wrap;">${esc(t)}</div>`
+  : '<p class="muted">ستصلكم تعليمات الدفع من الإدارة قريباً.</p>';
+
+async function loadAds(){
+  const grid = document.getElementById('adPkgGrid');
+  const box = document.getElementById('adOrdersBox');
+  const { data: pkgs } = await sb.from('ad_packages').select('*').eq('is_active', true).order('price_dzd');
+  adPkgMap = Object.fromEntries((pkgs || []).map(p => [p.id, p]));
+  grid.innerHTML = (pkgs || []).map(p => `
+    <div class="planCard">
+      <h4>${esc(p.name)}</h4>
+      <div class="price">${fmtDzd(p.price_dzd)}</div>
+      <p class="muted">${esc(p.description || '')}</p>
+      <button class="btn-primary btn-sm" style="width:100%;margin-top:8px;" onclick="openAdOrderModal('${p.id}')">اطلب هذه الباقة</button>
+    </div>`).join('') || '<p class="muted">لا توجد باقات متاحة حالياً.</p>';
+
+  const { data: orders, error } = await sb.from('ad_orders')
+    .select('id, status, amount_dzd, generated_ad_copy, video_scripts, delivery_urls, created_at, ad_packages(name)')
+    .order('created_at', {ascending:false});
+  if(error){ box.innerHTML = esc(errText(error)); return; }
+  if(!orders.length){ box.innerHTML = '<p class="muted">لا توجد طلبات إعلانية بعد.</p>'; return; }
+  adOrderMap = Object.fromEntries(orders.map(o => [o.id, o]));
+  const rows = orders.map(o => {
+    const hasResults = ['in_production','delivered'].includes(o.status) && ((o.generated_ad_copy || []).length || (o.video_scripts || []).length || (o.delivery_urls || []).length);
+    const action = o.status === 'pending_payment'
+      ? `<button class="btn-sm btn-green" onclick="reopenAdPay('${o.id}')">تعليمات الدفع</button>`
+      : (hasResults ? `<button class="btn-sm btn-green" onclick="openAdResults('${o.id}')">عرض النتائج</button>` : '—');
+    return `<tr>
+      <td><b>${esc(shortRef(o.id))}</b></td>
+      <td>${esc(o.ad_packages?.name || '-')}</td>
+      <td>${fmtDzd(o.amount_dzd)}</td>
+      <td><span class="badge badge-${o.status==='delivered'?'active':(o.status==='pending_payment'?'pending':(o.status==='cancelled'?'cancelled':'trial'))}">${esc(AD_STATUS[o.status] || o.status)}</span></td>
+      <td>${fmtDate(o.created_at)}</td>
+      <td>${action}</td>
+    </tr>`;
+  }).join('');
+  box.innerHTML = `<table><thead><tr><th>المرجع</th><th>الباقة</th><th>المبلغ</th><th>الحالة</th><th>التاريخ</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+function openAdOrderModal(pkgId){
+  const p = adPkgMap[pkgId]; if(!p) return;
+  document.getElementById('adPkgId').value = pkgId;
+  document.getElementById('adOrderTitle').textContent = 'طلب: ' + p.name;
+  document.getElementById('abTextFields').style.display = p.quantity_texts > 0 ? 'block' : 'none';
+  document.getElementById('abVideoFields').style.display = p.quantity_videos > 0 ? 'block' : 'none';
+  ['abProduct','abBenefits','abPrice','abAudience','abNotes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('adOrderMsg').textContent = '';
+  document.getElementById('adOrderModalBg').classList.add('show');
+}
+function closeAdOrderModal(){ document.getElementById('adOrderModalBg').classList.remove('show'); }
+
+async function submitAdOrder(){
+  const msgEl = document.getElementById('adOrderMsg');
+  const pkg = adPkgMap[document.getElementById('adPkgId').value];
+  if(!pkg) return;
+  const product = val('abProduct');
+  if(product.length < 2){ msgEl.textContent = 'اكتبوا اسم المنتج.'; return; }
+  const brief = { product };
+  if(pkg.quantity_texts > 0){
+    const benefits = val('abBenefits');
+    if(!benefits){ msgEl.textContent = 'اكتبوا مزايا المنتج (ميزة في كل سطر).'; return; }
+    Object.assign(brief, {
+      benefits,
+      price: Number(val('abPrice')) || 0,
+      audience: val('abAudience'),
+      tone: document.getElementById('abTone').value,
+      platform: document.getElementById('abPlatform').value,
+      cod: document.getElementById('abCod').checked,
+      delivery: document.getElementById('abDel').checked
+    });
+  }
+  if(pkg.quantity_videos > 0){
+    const notes = val('abNotes');
+    if(notes.length < 10){ msgEl.textContent = 'صِفوا الفيديو المطلوب ولو باختصار.'; return; }
+    brief.notes = notes;
+  }
+  const { data:{ user } } = await sb.auth.getUser();
+  const { data, error } = await sb.from('ad_orders').insert({ merchant_id: user.id, package_id: pkg.id, brief }).select('id').single();
+  if(error){ msgEl.textContent = errText(error); return; }
+  closeAdOrderModal();
+  showAdPay(data.id, pkg.price_dzd);
+  loadAds();
+}
+
+async function showAdPay(orderId, amount){
+  const instr = await getPayInstructions();
+  document.getElementById('adPayBody').innerHTML = `
+    <p>مرجع الطلب: <b style="color:var(--accent);">${esc(shortRef(orderId))}</b></p>
+    <p>المبلغ المطلوب: <b>${fmtDzd(amount)}</b></p>
+    <p class="muted">اذكروا المرجع عند إرسال الدفع، وسيبدأ التنفيذ بعد تأكيد الإدارة.</p>
+    ${instrHtml(instr)}`;
+  document.getElementById('adPayModalBg').classList.add('show');
+}
+function reopenAdPay(id){ const o = adOrderMap[id]; if(o) showAdPay(id, o.amount_dzd); }
+
+function openAdResults(id){
+  const o = adOrderMap[id]; if(!o) return;
+  const texts = o.generated_ad_copy || [], scripts = o.video_scripts || [];
+  const urls = (o.delivery_urls || []).filter(u => /^https?:\/\//i.test(u));
+  const card = (title, t, key) => `<div class="panel"><b>${title}</b><pre style="white-space:pre-wrap;font-family:inherit;margin:8px 0;">${esc(t)}</pre><button class="btn-sm btn-green" data-copy="${key}">نسخ</button></div>`;
+  let html = '';
+  if(texts.length) html += '<h4>النصوص الإعلانية</h4>' + texts.map((t, i) => card('نص ' + (i + 1), t, 't:' + i)).join('');
+  if(scripts.length) html += '<h4>سيناريوهات الفيديو</h4>' + scripts.map((t, i) => card('سيناريو ' + (i + 1), t, 's:' + i)).join('');
+  if(urls.length) html += '<h4>الفيديوهات</h4><ul>' + urls.map(u =>
+    `<li><a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--accent);">${esc(u)}</a></li>`).join('') + '</ul>';
+  const box = document.getElementById('adResultBody');
+  box.innerHTML = html || '<p class="muted">لا توجد نتائج بعد.</p>';
+  box.querySelectorAll('[data-copy]').forEach(b => b.onclick = async () => {
+    const [k, i] = b.dataset.copy.split(':');
+    const value = (k === 't' ? texts : scripts)[Number(i)];
+    try{ await navigator.clipboard.writeText(value); b.textContent = 'تم النسخ ✅'; }
+    catch(e){ b.textContent = 'تعذّر النسخ'; }
+  });
+  document.getElementById('adResultModalBg').classList.add('show');
 }
 </script>
 </body>
