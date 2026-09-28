@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>أنشئ متجرك الإلكتروني بالدينار الجزائري</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1e222b;--border:#2a2f3a;--text:#e8eaed;--muted:#9aa2af;--accent:#3ddc97;--accent2:#0d6efd;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Tajawal','Segoe UI',Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text);line-height:1.7;}
+  .wrap{max-width:900px;margin:auto;padding:0 18px;}
+  .hero{text-align:center;padding:64px 0 40px;}
+  .hero h1{font-size:30px;margin:0 0 12px;}
+  .hero p{color:var(--muted);font-size:16px;margin:0 auto 24px;max-width:560px;}
+  .cta{display:inline-block;background:var(--accent2);color:#fff;text-decoration:none;padding:14px 26px;border-radius:12px;font-weight:700;font-size:16px;}
+  .ghost{display:block;margin-top:14px;color:var(--muted);font-size:14px;text-decoration:none;}
+  .badge{display:inline-block;background:#14311f;color:var(--accent);padding:4px 14px;border-radius:20px;font-size:13px;font-weight:700;margin-bottom:16px;}
+  h2{text-align:center;font-size:22px;margin:44px 0 18px;}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;}
+  .step{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;text-align:center;}
+  .step b{display:block;font-size:26px;color:var(--accent);}
+  .plans{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;}
+  .plan{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:20px;text-align:center;}
+  .plan h3{margin:0;}
+  .price{font-size:24px;font-weight:700;color:var(--accent);margin:8px 0;}
+  .price small{font-size:13px;color:var(--muted);font-weight:400;}
+  .plan p{margin:4px 0;color:var(--muted);font-size:14px;}
+  .muted{color:var(--muted);text-align:center;}
+  footer{text-align:center;color:var(--muted);font-size:13px;padding:40px 0 30px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <span class="badge">تجربة مجانية 14 يوماً</span>
+    <h1>أنشئ متجرك الإلكتروني في دقائق</h1>
+    <p>متجر مؤتمت بالدينار الجزائري، مع الدفع عند الاستلام، وتصلك الطلبات مباشرة في لوحة تحكم بسيطة.</p>
+    <a class="cta" href="merchant-dashboard.html#signup">ابدأ تجربتك المجانية</a>
+    <a class="ghost" href="merchant-dashboard.html">لديك حساب؟ سجّل الدخول</a>
+  </section>
+
+  <h2>كيف يعمل؟</h2>
+  <div class="steps">
+    <div class="step"><b>1</b>أنشئ حسابك وسجّل متجرك</div>
+    <div class="step"><b>2</b>أضف منتجاتك وأسعارها</div>
+    <div class="step"><b>3</b>شارك رابط متجرك واستقبل الطلبات</div>
+  </div>
+
+  <h2>الباقات</h2>
+  <div class="plans" id="plans"><p class="muted" style="grid-column:1/-1">جاري التحميل...</p></div>
+
+  <footer>كل الأسعار بالدينار الجزائري</footer>
+</div>
+
+<script>
+const sb = supabase.createClient(
+  "https://pmptbireusmsgbylosac.supabase.co",
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtcHRiaXJldXNtc2dieWxvc2FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0NTg4MzYsImV4cCI6MjEwNjAzNDgzNn0.WWqtszSNO4OqxfBPNSSIHV5GHMCrhnfjdgfarQgvt3U"
+);
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = n => (n || 0).toLocaleString('ar-DZ') + ' دج';
+
+(async () => {
+  const el = document.getElementById('plans');
+  const { data, error } = await sb.from('pricing_plans').select('*').eq('is_active', true).order('monthly_price_dzd');
+  if(error || !data || !data.length){ el.innerHTML = '<p class="muted" style="grid-column:1/-1">الباقات غير متاحة حالياً.</p>'; return; }
+  el.innerHTML = data.map(p => `
+    <div class="plan">
+      <h3>${esc(p.name)}</h3>
+      <div class="price">${money(p.monthly_price_dzd)}<small> / شهر</small></div>
+      <p>${p.max_products ? 'حتى ' + esc(p.max_products) + ' منتج' : 'منتجات غير محدودة'}</p>
+      <p>${p.max_orders_per_month ? 'حتى ' + esc(p.max_orders_per_month) + ' طلب شهرياً' : 'طلبات غير محدودة'}</p>
+      <p>${p.allow_online_payment ? 'دفع عند الاستلام + إلكتروني' : 'الدفع عند الاستلام'}</p>
+    </div>`).join('');
+})();
+</script>
+</body>
+</html>
