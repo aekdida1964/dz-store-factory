@@ -295,17 +295,28 @@ async function loadSubstores(){
   const { data, error } = await sb.from('substores').select('id, store_name, slug, wilaya, status, created_at, profiles(full_name)').order('created_at', {ascending:false});
   if(error){ el.innerHTML = 'خطأ: '+error.message; return; }
   if(!data.length){ el.innerHTML = '<p class="muted">لا توجد متاجر بعد.</p>'; return; }
-  let rows = data.map(s=>`<tr>
+  let rows = data.map(s=>{
+    const url = location.origin + '/store.html?s=' + encodeURIComponent(s.slug);
+    return `<tr>
     <td>${esc(s.store_name)}</td>
     <td>${esc(s.profiles?.full_name || '-')}</td>
     <td>${esc(s.wilaya||'-')}</td>
     <td><span class="badge badge-${s.status}">${s.status}</span></td>
     <td>
+      <a href="${esc(url)}" target="_blank" rel="noopener" style="color:var(--accent);">فتح</a>
+      <button class="btn-sm" style="background:var(--panel2);color:var(--text);margin-inline-start:6px;" onclick="copyStoreLink('${esc(url)}', this)">نسخ الرابط</button>
+    </td>
+    <td>
       ${s.status!=='active' ? `<button class="btn-sm btn-green" onclick="setStoreStatus('${s.id}','active')">تفعيل</button>` : ''}
       ${s.status!=='frozen' ? `<button class="btn-sm btn-danger" onclick="setStoreStatus('${s.id}','frozen')">تجميد</button>` : ''}
     </td>
-  </tr>`).join('');
-  el.innerHTML = `<table><thead><tr><th>اسم المتجر</th><th>التاجر</th><th>الولاية</th><th>الحالة</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+  </tr>`;
+  }).join('');
+  el.innerHTML = `<table><thead><tr><th>اسم المتجر</th><th>التاجر</th><th>الولاية</th><th>الحالة</th><th>رابط المتجر</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+async function copyStoreLink(url, btn){
+  try{ await navigator.clipboard.writeText(url); const old = btn.textContent; btn.textContent = 'تم النسخ ✅'; setTimeout(()=>btn.textContent=old, 1500); }
+  catch(e){ alert(url); }
 }
 async function setStoreStatus(id, status){
   const { error } = await sb.from('substores').update({status}).eq('id', id);
