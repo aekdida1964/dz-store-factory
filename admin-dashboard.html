@@ -168,6 +168,8 @@
   <div class="modal" style="max-width:560px;">
     <h3>مراجعة المحتوى</h3>
     <p class="muted" id="reviewMeta"></p>
+    <button class="btn-sm" id="retryGeminiBtn" style="width:100%;margin-bottom:10px;background:var(--panel2);color:var(--text);display:none;" onclick="retryWithGemini()">إعادة المحاولة مع Gemini</button>
+    <p class="muted" id="retryMsg"></p>
     <div id="textsBody"></div>
     <button class="btn-green" id="approveBtn" style="width:100%;margin-top:8px;" onclick="saveReview(true)">حفظ واعتماد</button>
     <button class="btn-sm" id="saveBtn" style="width:100%;margin-top:8px;background:var(--panel2);color:var(--text);" onclick="saveReview(false)">حفظ التعديلات فقط</button>
@@ -483,6 +485,25 @@ function startAdProduction(id){ setAdStatus(id, {status:'in_production'}); }
 function cancelAdOrder(id){ if(confirm('إلغاء هذا الطلب؟')) setAdStatus(id, {status:'cancelled'}); }
 
 let adBusy = false;
+
+// يحاول Gemini، وعند الفشل يعيد القوالب مع سبب الفشل. لا يكتب في القاعدة.
+async function tryGemini(o, id){
+  const nTexts = o.ad_packages?.quantity_texts || 0;
+  const nVideos = o.ad_packages?.quantity_videos || 0;
+  try{
+    const { data, error } = await sb.functions.invoke('generate-ad-copy', { body: { order_id: id } });
+    if(error || !data || !data.ok) throw new Error((data && (data.detail || data.error)) || (error && error.message) || 'فشل الاتصال');
+    return { texts: data.texts || [], scripts: data.video_scripts || [], source: 'gemini', note: '' };
+  }catch(e){
+    return {
+      texts: generateAdCopy(o.brief, nTexts),
+      scripts: generateVideoScripts(o.brief, nVideos),
+      source: 'template',
+      note: 'تعذّر Gemini (' + String(e.message).slice(0, 120) + ') فاستُعملت القوالب. '
+    };
+  }
+}
+
 async function generateAdContent(id){
   if(adBusy) return;
   const o = adOrderMap[id]; if(!o) return;
@@ -492,17 +513,7 @@ async function generateAdContent(id){
   const msg = document.getElementById('adGenMsg');
   adBusy = true;
   msg.textContent = 'جاري التوليد بواسطة Gemini...';
-  let texts = [], scripts = [], source = 'gemini', note = '';
-  try{
-    const { data, error } = await sb.functions.invoke('generate-ad-copy', { body: { order_id: id } });
-    if(error || !data || !data.ok) throw new Error((data && (data.detail || data.error)) || (error && error.message) || 'فشل الاتصال');
-    texts = data.texts || []; scripts = data.video_scripts || [];
-  }catch(e){
-    source = 'template';
-    texts = generateAdCopy(o.brief, nTexts);
-    scripts = generateVideoScripts(o.brief, nVideos);
-    note = 'تعذّر Gemini (' + String(e.message).slice(0, 120) + ') فاستُعملت القوالب. ';
-  }
+  const { texts, scripts, source, note } = await tryGemini(o, id);
   const patch = { gen_source: source, status: 'ai_generated' };
   if(nTexts) patch.generated_ad_copy = texts;
   if(nVideos) patch.video_scripts = scripts;
@@ -512,10 +523,21 @@ async function generateAdContent(id){
   if(!upErr) loadAdOrders();
 }
 
-let reviewId = null;
+let reviewId = null, reviewSource = null;
+function fillReviewTextareas(texts, scripts){
+  document.querySelectorAll('#textsBody textarea').forEach(t => {
+    t.value = (t.dataset.k === 't' ? texts : scripts)[Number(t.dataset.i)] || '';
+  });
+}
+function updateReviewMeta(){
+  const label = reviewSource === 'gemini' ? 'Gemini' : (reviewSource === 'template' ? 'قوالب جاهزة' : '-');
+  document.getElementById('reviewMeta').textContent = 'مصدر التوليد: ' + label;
+  document.getElementById('retryGeminiBtn').style.display =
+    (reviewSource === 'template' && document.getElementById('approveBtn').style.display !== 'none') ? 'block' : 'none';
+}
 function openReview(id){
   const o = adOrderMap[id]; if(!o) return;
-  reviewId = id;
+  reviewId = id; reviewSource = o.gen_source || null;
   const texts = o.generated_ad_copy || [], scripts = o.video_scripts || [];
   const editable = o.status === 'ai_generated';
   let html = '';
@@ -523,18 +545,39 @@ function openReview(id){
   if(scripts.length) html += '<h4>سيناريوهات الفيديو</h4>' + scripts.map((_, i) => `<textarea data-k="s" data-i="${i}" rows="10" ${editable ? '' : 'readonly'}></textarea>`).join('');
   const body = document.getElementById('textsBody');
   body.innerHTML = html || '<p class="muted">لا يوجد محتوى.</p>';
-  body.querySelectorAll('textarea').forEach(t => { t.value = (t.dataset.k === 't' ? texts : scripts)[Number(t.dataset.i)] || ''; });
-  document.getElementById('reviewMeta').textContent = 'مصدر التوليد: ' + (o.gen_source === 'gemini' ? 'Gemini' : (o.gen_source === 'template' ? 'قوالب جاهزة' : '-'));
+  fillReviewTextareas(texts, scripts);
   document.getElementById('approveBtn').style.display = editable ? 'block' : 'none';
   document.getElementById('saveBtn').style.display = editable ? 'block' : 'none';
+  updateReviewMeta();
+  document.getElementById('retryMsg').textContent = '';
   document.getElementById('textsModalBg').classList.add('show');
 }
 function closeReview(){ document.getElementById('textsModalBg').classList.remove('show'); }
+
+let retryBusy = false;
+async function retryWithGemini(){
+  if(retryBusy) return;
+  const o = adOrderMap[reviewId]; if(!o) return;
+  const msg = document.getElementById('retryMsg');
+  retryBusy = true;
+  msg.textContent = 'جاري إعادة المحاولة مع Gemini...';
+  const { texts, scripts, source, note } = await tryGemini(o, reviewId);
+  retryBusy = false;
+  if(source === 'gemini'){
+    fillReviewTextareas(texts, scripts);
+    reviewSource = 'gemini';
+    updateReviewMeta();
+    msg.textContent = 'نجحت هذه المرة. راجعوا المحتوى ثم احفظوه.';
+  } else {
+    msg.textContent = note + 'حاولوا مرة أخرى بعد قليل، أو تابعوا بالمحتوى الحالي.';
+  }
+}
+
 async function saveReview(approve){
   const o = adOrderMap[reviewId]; if(!o) return;
   const texts = [], scripts = [];
   document.querySelectorAll('#textsBody textarea').forEach(t => { (t.dataset.k === 't' ? texts : scripts).push(t.value.trim()); });
-  const patch = {};
+  const patch = { gen_source: reviewSource || o.gen_source };
   if(texts.length) patch.generated_ad_copy = texts.filter(Boolean);
   if(scripts.length) patch.video_scripts = scripts.filter(Boolean);
   if(approve){
@@ -552,6 +595,7 @@ function generateVideoScripts(brief, n){
   const P = clean(brief.product, 80);
   const dj = brief.tone === 'darija';
   const B = String(brief.benefits ?? '').split(/[\n،,;]+/).map(x => clean(x, 80)).filter(Boolean).slice(0, 3);
+  const notes = clean(brief.notes, 500);
   const priceNum = Number(brief.price);
   const price = priceNum > 0 ? priceNum.toLocaleString('ar-DZ') + ' دج' : '';
   const cod = brief.cod !== false;
@@ -561,14 +605,17 @@ function generateVideoScripts(brief, n){
   const cta = dj
     ? `اطلب دروك${cod ? '، وتخلص كي توصلك السلعة' : ''}.`
     : `اطلبه الآن${cod ? '، والدفع عند الاستلام' : ''}.`;
+  const content = B.length
+    ? B.map(b => '• ' + b).join('\n')
+    : (notes ? notes : '• اعرض المنتج واذكر أهم ميزاته');
   const out = [];
   for(let i = 0; i < n; i++){
     out.push(
       '🎬 سيناريو فيديو UGC (15–25 ثانية)\n\n' +
       'الخطّاف (أول 3 ثوانٍ):\n' + hooks[i % hooks.length] + '\n\n' +
-      'المحتوى:\n' + (B.map(b => '• ' + b).join('\n') || '• اعرض المنتج واذكر أهم ميزاته') + '\n\n' +
+      'المحتوى (فكرة التاجر):\n' + content + '\n\n' +
       'الدعوة للطلب:\n' + cta + '\n\n' +
-      'اللقطات المقترحة:\n1) لقطة قريبة للمنتج\n2) المؤدّي يعرضه بيده\n3) لقطة استعمال حقيقية\n4) لقطة ختامية مع اسم المنتج\n\n' +
+      'اللقطات المقترحة:\n1) لقطة قريبة للمنتج\n2) المؤدّي يعرضه بيده أو يستعمله\n3) لقطة استعمال حقيقية حسب الفكرة أعلاه\n4) لقطة ختامية مع اسم المنتج\n\n' +
       'النص الظاهر على الشاشة:\n' + P + (price ? ' — ' + price : '') +
       '\n\n⚠️ يؤدّيه شخص حقيقي، ولا تُقدَّم فيه شهادة زبون مخترعة.'
     );
