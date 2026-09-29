@@ -248,7 +248,7 @@
 <script>
 const SUPABASE_URL = "https://pmptbireusmsgbylosac.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBtcHRiaXJldXNtc2dieWxvc2FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA0NTg4MzYsImV4cCI6MjEwNjAzNDgzNn0.WWqtszSNO4OqxfBPNSSIHV5GHMCrhnfjdgfarQgvt3U";
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { storageKey: 'sb-merchant-dz-store-factory' } });
 
 const fmtDzd = n => (n ?? 0).toLocaleString('ar-DZ') + ' دج';
 const fmtDate = d => d ? new Date(d).toLocaleDateString('ar-DZ') : '-';
