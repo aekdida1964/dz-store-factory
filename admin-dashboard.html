@@ -49,6 +49,8 @@
   .section{display:none;}
   .section.active{display:block;}
   .toolbar{margin-bottom:14px;display:flex;gap:10px;flex-wrap:wrap;}
+  .chip-flt{border:1px solid var(--border);background:var(--panel);color:var(--muted);padding:7px 14px;border-radius:20px;font:inherit;font-size:13px;cursor:pointer;}
+  .chip-flt.on{background:var(--accent2);color:#fff;border-color:var(--accent2);}
   .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50;}
   .modal-bg.show{display:flex;}
   .modal{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px;width:90%;max-width:420px;max-height:85vh;overflow-y:auto;}
@@ -125,8 +127,16 @@
     <!-- Ad orders -->
     <section class="section" id="sec-adorders">
       <div class="topbar"><h2>طلبات الإعلانات</h2></div>
+      <div class="toolbar" id="adFilterTabs">
+        <button class="chip-flt" data-f="open">نشطة</button>
+        <button class="chip-flt" data-f="done">مكتملة/ملغاة</button>
+        <button class="chip-flt" data-f="all">الكل</button>
+      </div>
       <p id="adGenMsg" class="muted"></p>
       <div id="adOrdersTable" class="loading">جاري التحميل...</div>
+      <div style="text-align:center;margin-top:14px;">
+        <button class="btn-sm" id="adLoadMoreBtn" style="background:var(--panel2);color:var(--text);display:none;" onclick="loadAdOrders(false)">تحميل المزيد</button>
+      </div>
     </section>
     <!-- Settings -->
     <section class="section" id="sec-settings">
@@ -137,6 +147,13 @@
         <textarea id="payInstrText" rows="6" placeholder="مثال: CCP رقم ... باسم ..."></textarea>
         <button class="btn-primary" onclick="saveSettings()">حفظ</button>
         <p class="muted" id="settingsMsg"></p>
+      </div>
+      <div class="card" style="width:100%;max-width:520px;margin-top:16px;">
+        <h3 style="margin-top:0;">الدفع الإلكتروني (Chargily)</h3>
+        <p class="muted">فعّلوا هذا الخيار فقط بعد إضافة السرّ <code>CHARGILY_SECRET_KEY</code> في Supabase ونشر دالتي chargily-create-checkout وchargily-webhook، وتسجيل رابط الدالة الثانية في لوحة Chargily (Developers Corner → Webhook URL).</p>
+        <label class="muted"><input type="checkbox" id="chargilyEnabled" style="width:auto;margin-inline-end:6px;">تفعيل الدفع الإلكتروني للتجار</label>
+        <button class="btn-primary" style="margin-top:10px;" onclick="saveChargilySetting()">حفظ</button>
+        <p class="muted" id="chargilyMsg"></p>
       </div>
     </section>
   </main>
@@ -425,6 +442,17 @@ async function toggleAdPackage(id, val){
 const AD_STATUS = {pending_payment:'بانتظار الدفع', paid:'مدفوع', ai_generated:'مسودة بانتظار المراجعة', in_production:'قيد التنفيذ', delivered:'مُسلَّم', cancelled:'ملغى'};
 let adOrderMap = {};
 const shortRef = id => String(id).replace(/-/g,'').slice(0,8).toUpperCase();
+const AD_PAGE_SIZE = 10;
+const AD_OPEN_STATUSES = ['pending_payment','paid','ai_generated','in_production'];
+const AD_DONE_STATUSES = ['delivered','cancelled'];
+let adFilter = 'open', adPage = 0;
+document.getElementById('adFilterTabs').addEventListener('click', e=>{
+  const b = e.target.closest('.chip-flt'); if(!b) return;
+  adFilter = b.dataset.f;
+  document.querySelectorAll('.chip-flt').forEach(c=>c.classList.toggle('on', c===b));
+  loadAdOrders(true);
+});
+document.querySelector('.chip-flt[data-f="open"]').classList.add('on');
 
 function briefSummary(b){
   if(!b || typeof b !== 'object') return '-';
@@ -454,14 +482,23 @@ function adActions(o){
   return out || '—';
 }
 
-async function loadAdOrders(){
+async function loadAdOrders(reset = true){
   const el = document.getElementById('adOrdersTable');
-  const { data, error } = await sb.from('ad_orders')
+  const moreBtn = document.getElementById('adLoadMoreBtn');
+  if(reset){ adPage = 0; adOrderMap = {}; el.innerHTML = '<div class="loading">جاري التحميل...</div>'; }
+
+  let q = sb.from('ad_orders')
     .select('id, status, brief, amount_dzd, generated_ad_copy, video_scripts, gen_source, delivery_urls, created_at, profiles(full_name, phone), ad_packages(name, type, quantity_texts, quantity_videos)')
-    .order('created_at', {ascending:false});
-  if(error){ el.innerHTML = 'خطأ: ' + esc(error.message); return; }
-  if(!data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات إعلانية بعد.</p>'; return; }
-  adOrderMap = Object.fromEntries(data.map(o => [o.id, o]));
+    .order('created_at', {ascending:false})
+    .range(adPage * AD_PAGE_SIZE, adPage * AD_PAGE_SIZE + AD_PAGE_SIZE - 1);
+  if(adFilter === 'open') q = q.in('status', AD_OPEN_STATUSES);
+  else if(adFilter === 'done') q = q.in('status', AD_DONE_STATUSES);
+
+  const { data, error } = await q;
+  if(error){ el.innerHTML = 'خطأ: ' + esc(error.message); moreBtn.style.display = 'none'; return; }
+  if(reset && !data.length){ el.innerHTML = '<p class="muted">لا توجد طلبات في هذا القسم.</p>'; moreBtn.style.display = 'none'; return; }
+
+  data.forEach(o => adOrderMap[o.id] = o);
   const rows = data.map(o => `<tr>
     <td><b>${esc(shortRef(o.id))}</b></td>
     <td>${esc(o.profiles?.full_name || '-')}<br><span class="muted">${esc(o.profiles?.phone || '')}</span></td>
@@ -471,7 +508,14 @@ async function loadAdOrders(){
     <td style="max-width:240px;white-space:normal;font-size:12px;">${esc(briefSummary(o.brief))}</td>
     <td>${adActions(o)}</td>
   </tr>`).join('');
-  el.innerHTML = `<table><thead><tr><th>المرجع</th><th>التاجر</th><th>الباقة</th><th>المبلغ</th><th>الحالة</th><th>تفاصيل الطلب</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+  if(reset){
+    el.innerHTML = `<table><thead><tr><th>المرجع</th><th>التاجر</th><th>الباقة</th><th>المبلغ</th><th>الحالة</th><th>تفاصيل الطلب</th><th>إجراء</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } else {
+    el.querySelector('tbody').insertAdjacentHTML('beforeend', rows);
+  }
+  moreBtn.style.display = data.length === AD_PAGE_SIZE ? 'inline-block' : 'none';
+  adPage++;
 }
 
 async function setAdStatus(id, patch){
@@ -640,14 +684,22 @@ async function markDelivered(){
 
 // ---------- SETTINGS ----------
 async function loadSettings(){
-  const { data } = await sb.from('platform_settings').select('value').eq('key','payment_instructions').maybeSingle();
-  document.getElementById('payInstrText').value = data?.value || '';
+  const { data } = await sb.from('platform_settings').select('key, value').in('key', ['payment_instructions','chargily_enabled']);
+  const map = Object.fromEntries((data||[]).map(r=>[r.key, r.value]));
+  document.getElementById('payInstrText').value = map.payment_instructions || '';
+  document.getElementById('chargilyEnabled').checked = map.chargily_enabled === 'true';
   document.getElementById('settingsMsg').textContent = '';
+  document.getElementById('chargilyMsg').textContent = '';
 }
 async function saveSettings(){
   const value = document.getElementById('payInstrText').value.trim();
   const { error } = await sb.from('platform_settings').upsert({key:'payment_instructions', value, updated_at:new Date().toISOString()});
   document.getElementById('settingsMsg').textContent = error ? 'خطأ: ' + error.message : 'تم الحفظ ✅';
+}
+async function saveChargilySetting(){
+  const value = document.getElementById('chargilyEnabled').checked ? 'true' : 'false';
+  const { error } = await sb.from('platform_settings').upsert({key:'chargily_enabled', value, updated_at:new Date().toISOString()});
+  document.getElementById('chargilyMsg').textContent = error ? 'خطأ: ' + error.message : (value==='true' ? 'تم التفعيل ✅' : 'تم الإيقاف');
 }
 
 // ---------- مولّد النصوص الإعلانية (قوالب جاهزة، بدون ذكاء اصطناعي) ----------
